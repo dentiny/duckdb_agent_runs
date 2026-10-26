@@ -6,7 +6,6 @@
 namespace duckdb {
 void UploadRun(ClientContext &context, const RunOptions &options, const RunPlan &plan) {
 	auto &fs = FileSystem::GetFileSystem(context);
-	// Preflight every object before creating anything. This is not a distributed lock.
 	for (const auto &file : plan.files) {
 		const auto target = fs.JoinPath(options.job_destination, file.relative_path);
 		if (fs.FileExists(target)) {
