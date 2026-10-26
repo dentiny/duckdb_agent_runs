@@ -130,13 +130,19 @@ string Normalize(FileSystem &fs, const string &path) {
 	return value;
 }
 
-bool ContainsPath(const string &root, const string &path) {
-	auto prefix = StringUtil::EndsWith(root, "/") ? root : root + "/";
+//! Test normalized paths at directory boundaries, so /job does not contain /job-backup.
+bool IsSameOrDescendantPath(const string &root, const string &path) {
+	auto prefix = StringUtil::EndsWith(root, "/") ? root : StringUtil::Format("%s/", root);
 	return root == path || StringUtil::StartsWith(path, prefix);
 }
 
-bool Overlaps(const string &a, const string &b) {
-	return ContainsPath(a, b) || ContainsPath(b, a);
+//! Reject equal or nested source/destination roots before any ingestion writes.
+//! Both paths must already be normalized; names identify the offending SQL arguments.
+void CheckSourceDestOverlap(const string &source, const string &destination, const char *source_name,
+                            const char *destination_name) {
+	if (IsSameOrDescendantPath(source, destination) || IsSameOrDescendantPath(destination, source)) {
+		throw InvalidInputException("%s and %s must not overlap", source_name, destination_name);
+	}
 }
 
 } // namespace
@@ -154,8 +160,7 @@ RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 
 void ValidateDestinations(ClientContext &context, const RunOptions &options, const RunPlan &plan) {
 	auto &fs = FileSystem::GetFileSystem(context);
-	if (Overlaps(Normalize(fs, plan.source), Normalize(fs, options.job_destination))) {
-		throw InvalidInputException("job_destination and job_directory must not overlap");
-	}
+	CheckSourceDestOverlap(Normalize(fs, plan.source), Normalize(fs, options.job_destination), "job_directory",
+	                       "job_destination");
 }
 } // namespace duckdb
