@@ -18,8 +18,15 @@ struct RunPlan {
 	vector<RunFile> files;
 	idx_t total_bytes = 0;
 };
+//! Inspect a local Harbor job and inventory its regular files in stable path order.
+//! Require config.json/result.json and reject internal symlinks and special files; write nothing.
 RunPlan PlanHarborRun(const RunOptions &options);
+//! Reject overlapping source/output roots before ingestion writes any files.
 void ValidateDestinations(const RunOptions &options, const RunPlan &plan);
+//! Preflight targets, then stream planned files to job_destination while preserving relative paths.
+//! Dry runs only preflight; a failure can leave files uploaded earlier in the run.
 void UploadRun(ClientContext &context, const RunOptions &options, const RunPlan &plan);
+//! Register ingest_agent_run and its named SQL parameters with the extension loader.
+//! Binding validates arguments; file I/O is deferred until execution.
 void RegisterRunIngest(ExtensionLoader &loader);
 } // namespace duckdb
