@@ -14,8 +14,31 @@ bool IsRegularFile(FileSystem &fs, const string &path) {
 	return metadata && metadata->file_type == FileType::FILE_TYPE_REGULAR;
 }
 
-//! Collect regular files beneath plan.source into plan.files and accumulate plan.total_bytes.
-//! Return sorted job-relative subdirectory paths; reject resolvable symlinks before descending.
+//! Validate a listed local entry before using its metadata or descending into it.
+FileMetadata InspectDirectoryEntry(FileSystem &fs, const string &path) {
+	if (fs.CanonicalizePath(path) != Path::Normalize(path)) {
+		throw InvalidInputException("Symlinks are not supported: %s", path);
+	}
+	auto metadata = fs.GetStatsIfExists(path);
+	if (!metadata) {
+		throw IOException("Source changed during planning: %s", path);
+	}
+	if (metadata->file_type != FileType::FILE_TYPE_DIR && metadata->file_type != FileType::FILE_TYPE_REGULAR) {
+		throw InvalidInputException("Only regular files are supported: %s", path);
+	}
+	if (metadata->file_type == FileType::FILE_TYPE_REGULAR && metadata->file_size < 0) {
+		throw IOException("Cannot determine source file size: %s", path);
+	}
+	return *metadata;
+}
+
+//! Append an inventoried file and update the job's total byte count.
+void AppendRunFile(RunPlan &plan, string relative_path, idx_t size) {
+	plan.files.push_back({std::move(relative_path), size});
+	plan.total_bytes += size;
+}
+
+//! Traverse local directories; entry validation and file accounting are handled separately.
 vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan &plan) {
 	vector<string> directories;
 	vector<string> pending {""};
@@ -27,75 +50,73 @@ vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan 
 		auto listed = fs.ListFiles(directory, [&](const string &name, bool) {
 			context.InterruptCheck();
 			auto relative = relative_directory.empty() ? name : StringUtil::Format("%s/%s", relative_directory, name);
-			auto path = fs.JoinPath(plan.source, relative);
-			// Listing follows resolvable links. Compare with the canonical path before descending.
-			// Dangling links and special files omitted by DuckDB's listing are not ingested.
-			if (fs.CanonicalizePath(path) != Path::Normalize(path)) {
-				throw InvalidInputException("Symlinks are not supported: %s", path);
-			}
-			auto metadata = fs.GetStatsIfExists(path);
-			if (!metadata) {
-				throw IOException("Source changed during planning: %s", path);
-			}
-			if (metadata->file_type == FileType::FILE_TYPE_DIR) {
+			auto metadata = InspectDirectoryEntry(fs, fs.JoinPath(plan.source, relative));
+			if (metadata.file_type == FileType::FILE_TYPE_DIR) {
 				directories.push_back(relative);
 				pending.push_back(std::move(relative));
-			} else if (metadata->file_type == FileType::FILE_TYPE_REGULAR) {
-				if (metadata->file_size < 0) {
-					throw IOException("Cannot determine source file size: %s", path);
-				}
-				auto size = idx_t(metadata->file_size);
-				plan.total_bytes += size;
-				plan.files.push_back({std::move(relative), size});
-			} else {
-				throw InvalidInputException("Only regular files are supported: %s", path);
+				return;
 			}
+			AppendRunFile(plan, std::move(relative), idx_t(metadata.file_size));
 		});
 		if (!listed) {
 			throw IOException("Cannot list Harbor directory: %s", directory);
 		}
 	}
-	std::sort(plan.files.begin(), plan.files.end(),
-	          [](const RunFile &a, const RunFile &b) { return a.relative_path < b.relative_path; });
-	std::sort(directories.begin(), directories.end());
 	return directories;
 }
 
-//! Collect files beneath an object-storage prefix and derive their job-relative parent directories.
-//! Object stores expose directory hierarchies through key prefixes rather than directory metadata.
+//! Resolve a listed object beneath the job prefix; directory markers return an empty path.
+string GetRelativeObjectPath(const string &prefix, const string &path) {
+	if (!StringUtil::StartsWith(path, prefix)) {
+		throw IOException("Listed object is outside the job prefix: %s", path);
+	}
+	auto relative = path.substr(prefix.size());
+	if (relative.empty() || relative.back() == '/') {
+		return "";
+	}
+	if (Path::FromString(relative).IsAbsolute() || relative.find('\\') != string::npos ||
+	    Path::Normalize(relative) != relative) {
+		throw InvalidInputException("Source object key must be a normalized job-relative path: %s", path);
+	}
+	return relative;
+}
+
+//! Derive implicit object-store directories from a job-relative file path.
+void CollectParentDirectories(const string &relative_path, unordered_set<string> &directories) {
+	for (auto separator = relative_path.find('/'); separator != string::npos;
+	     separator = relative_path.find('/', separator + 1)) {
+		directories.insert(relative_path.substr(0, separator));
+	}
+}
+
+//! List remote files and collect the parent prefixes used to discover trials and steps.
 vector<string> ScanRunObjects(ClientContext &context, FileSystem &fs, RunPlan &plan) {
 	unordered_set<string> directories;
-	const auto prefix = plan.source + "/";
-	for (const auto &entry : fs.Glob(prefix + "**")) {
+	const auto prefix = StringUtil::Format("%s/", plan.source);
+	for (const auto &entry : fs.Glob(StringUtil::Format("%s**", prefix))) {
 		context.InterruptCheck();
-		if (!StringUtil::StartsWith(entry.path, prefix)) {
-			throw IOException("Listed object is outside the job prefix: %s", entry.path);
-		}
-		auto relative = entry.path.substr(prefix.size());
-		if (relative.empty() || relative.back() == '/') {
+		auto relative = GetRelativeObjectPath(prefix, entry.path);
+		if (relative.empty()) {
 			continue;
-		}
-		if (Path::FromString(relative).IsAbsolute() || relative.find('\\') != string::npos ||
-		    Path::Normalize(relative) != relative) {
-			throw InvalidInputException("Source object key must be a normalized job-relative path: %s", entry.path);
 		}
 		auto metadata = fs.GetStatsIfExists(entry);
 		if (!metadata || metadata->file_size < 0 || metadata->file_type != FileType::FILE_TYPE_REGULAR) {
 			throw IOException("Cannot determine source object metadata: %s", entry.path);
 		}
-		auto size = idx_t(metadata->file_size);
-		plan.total_bytes += size;
-		plan.files.push_back({relative, size});
-		for (auto separator = relative.find('/'); separator != string::npos;
-		     separator = relative.find('/', separator + 1)) {
-			directories.insert(relative.substr(0, separator));
-		}
+		CollectParentDirectories(relative, directories);
+		AppendRunFile(plan, std::move(relative), idx_t(metadata->file_size));
 	}
+	return vector<string>(directories.begin(), directories.end());
+}
+
+//! Scan either source backend and return a stable file inventory and sorted relative directories.
+vector<string> ScanRunFiles(ClientContext &context, FileSystem &fs, RunPlan &plan) {
+	auto directories = Path::FromString(plan.source).IsRemote() ? ScanRunObjects(context, fs, plan)
+	                                                            : ScanRunDirectory(context, fs, plan);
 	std::sort(plan.files.begin(), plan.files.end(),
 	          [](const RunFile &a, const RunFile &b) { return a.relative_path < b.relative_path; });
-	vector<string> result(directories.begin(), directories.end());
-	std::sort(result.begin(), result.end());
-	return result;
+	std::sort(directories.begin(), directories.end());
+	return directories;
 }
 
 RunPlan InspectHarborRoot(FileSystem &fs, const RunOptions &options) {
@@ -150,11 +171,7 @@ void CheckSourceDestOverlap(const string &source, const string &destination, con
 RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
-	if (Path::FromString(plan.source).IsRemote()) {
-		ScanRunObjects(context, fs, plan);
-	} else {
-		ScanRunDirectory(context, fs, plan);
-	}
+	ScanRunFiles(context, fs, plan);
 	return plan;
 }
 
