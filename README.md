@@ -127,24 +127,3 @@ localhost with dummy credentials. No cloud account or bucket is used. The CI
 integration workflow runs both local and S3 tests, including byte-exact artifact
 copies, embedded PNG/WAV payloads after source deletion, multi-step/gzip inputs,
 preview/EXPLAIN behavior, validation, and duplicate protection.
-
-## Makefile shortcuts
-
-The shared extension build/test commands remain available: `make`, `make debug`,
-`make reldebug`, and `make test` (SQL smoke tests).
-
-```sh
-make format-all                 # Fix C++, CMake, and Python formatting
-make format-check-all           # Check the same files without editing
-make test_release_integration   # Use an existing release build
-make test_debug_integration     # Use an existing debug build
-make test_reldebug_integration  # Use an existing reldebug build
-make test_release_s3 HTTPFS_EXTENSION=/absolute/path/to/httpfs.duckdb_extension
-```
-
-`test_integration` and `test_s3` default to release; `BUILD_TYPE` selects another
-build directory. S3 also has `test_debug_s3` and `test_reldebug_s3` aliases. These
-test targets run the suite without rebuilding. Override `PYTHON`, `DUCKDB_BIN`,
-`AGENT_RUNS_EXTENSION`, or `INTEGRATION_TEST_ARGS` when using a virtual environment,
-a different CLI/binary, or a subset of tests. Formatting requires clang-format,
-cmake-format, and Black; S3 tests additionally require Moto as described above.
