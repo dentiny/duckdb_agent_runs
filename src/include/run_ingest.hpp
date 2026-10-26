@@ -4,6 +4,7 @@ namespace duckdb {
 enum class RunFormat : uint8_t { HARBOR };
 
 struct RunOptions {
+	//! Local job directory supplied by the job_directory SQL argument.
 	string source;
 	RunFormat format = RunFormat::HARBOR;
 	string job_destination;
