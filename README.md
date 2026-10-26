@@ -90,8 +90,9 @@ trajectories are allowed: failed trials and their artifacts are still uploaded.
 If any trajectories exist, `trajectory_destination` is required. Source, job
 output, and trajectory output roots must not overlap.
 
-ATIF is read from the original local path, so relative media paths continue to
-resolve. The pinned conversion submodule writes the full native ATIF schema,
+ATIF is read from its original source path or S3 URI, so relative media paths
+continue to resolve. S3 job sources use the same scoped secrets as artifact reads.
+The pinned conversion submodule writes the full native ATIF schema,
 including provenance, raw JSON, and embedded image/audio Blob V2 content, with
 Lance storage version 2.2. Text compression is `lz4` by default; `zstd` and `none`
 are supported. A new dataset is created per trajectory; existing datasets are

@@ -192,6 +192,7 @@ RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
 	auto directories = ScanRunFiles(context, fs, plan);
+
 	unordered_map<string, vector<string>> steps_by_trial;
 	for (const auto &directory : directories) {
 		auto marker = directory.rfind("/steps/");

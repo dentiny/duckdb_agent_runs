@@ -1,5 +1,5 @@
 # name: test/sql/ingest_s3.test
-# description: Upload Harbor artifacts and embedded ATIF media to S3
+# description: Ingest local and S3 Harbor jobs with embedded ATIF media
 # group: [sql]
 
 require-env AGENT_RUNS_S3_ENDPOINT
@@ -78,3 +78,88 @@ query I
 SELECT count(*) FROM glob(getvariable('s3_root') || '/another-job/**');
 ----
 0
+
+# A job prefix on S3 can be the source, including relative media references.
+query T
+SELECT status FROM ingest_agent_run(getvariable('s3_root') || '/job/', dry_run := true,
+    job_destination := getvariable('s3_root') || '/remote-job',
+    trajectory_destination := getvariable('s3_root') || '/remote-trajectories');
+----
+planned
+
+query I
+SELECT count(*) FROM glob(getvariable('s3_root') || '/remote-*/**');
+----
+0
+
+query TI
+SELECT status, file_count FROM ingest_agent_run(getvariable('s3_root') || '/job/',
+    job_destination := getvariable('s3_root') || '/remote-job',
+    trajectory_destination := getvariable('s3_root') || '/remote-trajectories');
+----
+ingested	7
+
+query II
+SELECT count(*), bool_and(coalesce(source.content = target.content, false))
+FROM read_blob('testdata/harbor/multimodal/**/*') source
+FULL JOIN read_blob(getvariable('s3_root') || '/remote-job/**/*') target
+ON substring(target.filename, length(getvariable('s3_root') || '/remote-job') + 1) =
+   substring(source.filename, length('testdata/harbor/multimodal') + 1);
+----
+7	true
+
+query II
+SELECT sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-image.png')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-image.png'))),
+       sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')))
+FROM read_blob(getvariable('s3_root') || '/remote-trajectories/task__abc.lance/data/*.lance');
+----
+2	2
+
+# Remote sources can also write to local destinations.
+query T
+SELECT status FROM ingest_agent_run(getvariable('s3_root') || '/job',
+    job_destination := '{TEST_DIR}/remote-job', trajectory_destination := '{TEST_DIR}/remote-trajectories');
+----
+ingested
+
+query II
+SELECT count(*), bool_and(coalesce(source.content = target.content, false))
+FROM read_blob('testdata/harbor/multimodal/**/*') source
+FULL JOIN read_blob('{TEST_DIR}/remote-job/**/*') target
+ON substring(target.filename, length('{TEST_DIR}/remote-job') + 1) =
+   substring(source.filename, length('testdata/harbor/multimodal') + 1);
+----
+7	true
+
+statement error
+SELECT * FROM ingest_agent_run(getvariable('s3_root') || '/job',
+    job_destination := getvariable('s3_root') || '/job/nested',
+    trajectory_destination := getvariable('s3_root') || '/overlapping-trajectories');
+----
+must not overlap
+
+statement error
+SELECT * FROM ingest_agent_run(getvariable('s3_root') || '/missing',
+    job_destination := getvariable('s3_root') || '/missing-job');
+----
+Harbor job requires config.json
+
+# Derive implicit trial/step directories from remote object keys.
+query I
+SELECT count(*) FROM ingest_agent_run('testdata/harbor/multistep',
+    job_destination := getvariable('s3_root') || '/steps-job',
+    trajectory_destination := getvariable('s3_root') || '/steps-trajectories');
+----
+2
+
+query TT rowsort
+SELECT status, regexp_extract(trajectory_destination, '(step-[12]\.lance)$', 1)
+FROM ingest_agent_run(getvariable('s3_root') || '/steps-job',
+    job_destination := '{TEST_DIR}/steps-job', trajectory_destination := '{TEST_DIR}/steps-trajectories');
+----
+ingested	step-1.lance
+ingested	step-2.lance
