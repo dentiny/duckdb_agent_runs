@@ -1,9 +1,11 @@
 #pragma once
 #include "duckdb.hpp"
 namespace duckdb {
+enum class RunFormat : uint8_t { HARBOR };
+
 struct RunOptions {
 	string source;
-	string format = "harbor";
+	RunFormat format = RunFormat::HARBOR;
 	string job_destination;
 	bool dry_run = false;
 };

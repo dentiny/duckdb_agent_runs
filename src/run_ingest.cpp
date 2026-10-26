@@ -20,6 +20,12 @@ static string RequiredString(const Value &value, const char *name) {
 	}
 	return result;
 }
+static RunFormat ParseRunFormat(const string &format) {
+	if (format == "harbor") {
+		return RunFormat::HARBOR;
+	}
+	throw InvalidInputException("Unsupported run format: %s", format);
+}
 static unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
                                         vector<Identifier> &names) {
 	auto data = make_uniq<RunBindData>();
@@ -29,7 +35,7 @@ static unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput 
 		if (name == "job_destination") {
 			data->options.job_destination = RequiredString(parameter.second, "job_destination");
 		} else if (name == "format") {
-			data->options.format = RequiredString(parameter.second, "format");
+			data->options.format = ParseRunFormat(RequiredString(parameter.second, "format"));
 		} else if (name == "dry_run") {
 			if (parameter.second.IsNull()) {
 				throw InvalidInputException("dry_run must not be NULL");
@@ -39,9 +45,6 @@ static unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput 
 	}
 	if (data->options.job_destination.empty()) {
 		throw InvalidInputException("job_destination is required");
-	}
-	if (data->options.format != "harbor") {
-		throw InvalidInputException("Unsupported run format: %s", data->options.format);
 	}
 	names = {"job_destination", "file_count", "total_bytes", "status"};
 	types = {LogicalType::VARCHAR, LogicalType::UBIGINT, LogicalType::UBIGINT, LogicalType::VARCHAR};
