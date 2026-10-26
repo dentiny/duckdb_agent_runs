@@ -1,13 +1,9 @@
 # Tests
 
-SQLLogicTest smoke tests live in `sql/` and run with `make test`.
-The Python integration suite in `integration/` exercises complete ingestion through
-the built DuckDB CLI. From the repository root, run:
+All tests are DuckDB SQLLogicTests in `sql/`. Run `make release` followed by
+`make test`; there is no separate Python test runner.
 
-```sh
-python3 test/integration/test_ingest.py -v
-```
-
-Use `--duckdb` and `--extension` to test alternate build locations. Integration tests
-use temporary directories and do not write to cloud storage. Additional optional
-S3 test instructions are in the repository README.
+Read-only fixtures live in `testdata/harbor/` and `testdata/atif/`. Tests cover
+byte-exact artifact upload, empty files, duplicate protection, dry-run,
+EXPLAIN/PREPARE, argument/path validation, and POSIX symlink rejection.
+Outputs use `{TEST_DIR}`, isolated and cleaned up by the DuckDB test runner.

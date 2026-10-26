@@ -1,4 +1,4 @@
-name: Ingestion integration
+name: Ingestion SQL tests
 on:
   push:
   pull_request:
@@ -16,24 +16,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: external/duckdb_lance_conversion/rust -> ../../../build/release/rust-lance-conversion
-      - name: Install build and test dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ninja-build protobuf-compiler
-      - name: Build
+      - name: Build extension and native SQL test runner
         run: |
           cmake -S duckdb -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
-            -DOVERRIDE_GIT_DESCRIBE=v2.0.0 -DBUILD_UNITTESTS=OFF \
+            -DUNITTEST_ROOT_DIRECTORY="$PWD" \
+            -DOVERRIDE_GIT_DESCRIBE=v2.0.0 -DBUILD_UNITTESTS=ON \
+            -DENABLE_UNITTEST_CPP_TESTS=OFF \
             -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF
-          cmake --build build/release --target duckdb agent_runs_loadable_extension -j 2
-      - name: Test local ingestion
-        run: python test/integration/test_ingest.py -v
+          cmake --build build/release --target duckdb unittest agent_runs_loadable_extension -j 2
+          cmake --build build/release --target duckdb_local_extension_repo
+      - name: Run SQLLogicTests
+        run: build/release/test/unittest --require agent_runs "test/sql/*"

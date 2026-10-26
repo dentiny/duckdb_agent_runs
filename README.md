@@ -60,5 +60,6 @@ The returned row contains the destination, file count, total source bytes, and
 `planned` or `uploaded` status. No catalog tables are created.
 
 ```sh
-python3 test/integration/test_ingest.py
+make release
+make test
 ```

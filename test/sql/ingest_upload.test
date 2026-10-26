@@ -1,0 +1,50 @@
+# name: test/sql/ingest_upload.test
+# description: Harbor artifact upload, byte fidelity, preview, and duplicate protection
+# group: [sql]
+
+require agent_runs
+
+query T
+SELECT status FROM ingest_agent_run('testdata/harbor/artifacts',
+    job_destination := '{TEST_DIR}/preview', dry_run := true);
+----
+planned
+
+statement ok
+EXPLAIN SELECT * FROM ingest_agent_run('testdata/harbor/artifacts',
+    job_destination := '{TEST_DIR}/explain');
+
+statement ok
+PREPARE upload AS SELECT * FROM ingest_agent_run('testdata/harbor/artifacts',
+    job_destination := '{TEST_DIR}/prepared');
+
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/**/*');
+----
+0
+
+query TII
+SELECT status, file_count, total_bytes = (SELECT sum(size) FROM read_blob('testdata/harbor/artifacts/**/*'))
+FROM ingest_agent_run('testdata/harbor/artifacts', job_destination := '{TEST_DIR}/uploaded');
+----
+uploaded	6	true
+
+# Compare every artifact, including binary content and an empty file.
+query II
+SELECT count(*), bool_and(coalesce(source.content = target.content, false))
+FROM read_blob('testdata/harbor/artifacts/**/*') source
+FULL JOIN read_blob('{TEST_DIR}/uploaded/**/*') target
+ON substring(target.filename, length('{TEST_DIR}/uploaded') + 1) =
+   substring(source.filename, length('testdata/harbor/artifacts') + 1);
+----
+6	true
+
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/artifacts', job_destination := '{TEST_DIR}/uploaded');
+----
+already exists
+
+query I
+SELECT count(*) FROM information_schema.tables;
+----
+0
