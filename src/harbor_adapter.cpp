@@ -1,6 +1,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/unordered_map.hpp"
 #include "duckdb/common/unordered_set.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "run_ingest.hpp"
@@ -191,6 +192,13 @@ RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
 	auto directories = ScanRunFiles(context, fs, plan);
+	unordered_map<string, vector<string>> steps_by_trial;
+	for (const auto &directory : directories) {
+		auto marker = directory.rfind("/steps/");
+		if (marker != string::npos && directory.find('/', marker + 7) == string::npos) {
+			steps_by_trial[directory.substr(0, marker)].push_back(directory);
+		}
+	}
 	for (const auto &trial : directories) {
 		auto parts = StringUtil::Split(trial, '/');
 		auto is_trial = (parts.size() == 1 && trial != "trials") || (parts.size() == 2 && parts[0] == "trials");
@@ -201,9 +209,9 @@ RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 			throw InvalidInputException("Harbor trial requires result.json: %s", fs.JoinPath(plan.source, trial));
 		}
 		FindTrajectory(fs, plan.source, trial, trial, trial + ".lance", plan);
-		auto prefix = trial + "/steps/";
-		for (const auto &step : directories) {
-			if (StringUtil::StartsWith(step, prefix) && step.find('/', prefix.size()) == string::npos) {
+		auto steps = steps_by_trial.find(trial);
+		if (steps != steps_by_trial.end()) {
+			for (const auto &step : steps->second) {
 				FindTrajectory(fs, plan.source, step, trial, step + ".lance", plan);
 			}
 		}
