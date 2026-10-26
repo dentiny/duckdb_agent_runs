@@ -1,11 +1,13 @@
-# Testing this extension
-This directory contains all the tests for this extension. The `sql` directory holds tests that are written as [SQLLogicTests](https://duckdb.org/dev/sqllogictest/intro.html). DuckDB aims to have most its tests in this format as SQL statements, so for the quack extension, this should probably be the goal too.
+# Tests
 
-The root makefile contains targets to build and run all of these tests. To run the SQLLogicTests:
-```bash
-make test
+SQLLogicTest smoke tests live in `sql/` and run with `make test`.
+The Python integration suite in `integration/` exercises complete ingestion through
+the built DuckDB CLI. From the repository root, run:
+
+```sh
+python3 test/integration/test_ingest.py -v
 ```
-or 
-```bash
-make test_debug
-```
+
+Use `--duckdb` and `--extension` to test alternate build locations. Integration tests
+use temporary directories and do not write to cloud storage. Additional optional
+S3 test instructions are in the repository README.

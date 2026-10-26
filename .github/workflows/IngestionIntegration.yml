@@ -1,0 +1,39 @@
+name: Ingestion integration
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ingestion:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      GEN: ninja
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: external/duckdb_lance_conversion/rust -> ../../../build/release/rust-lance-conversion
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build protobuf-compiler
+      - name: Build
+        run: |
+          cmake -S duckdb -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
+            -DOVERRIDE_GIT_DESCRIBE=v2.0.0 -DBUILD_UNITTESTS=OFF \
+            -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF
+          cmake --build build/release --target duckdb agent_runs_loadable_extension -j 2
+      - name: Test local ingestion
+        run: python test/integration/test_ingest.py -v

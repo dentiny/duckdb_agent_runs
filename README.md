@@ -27,3 +27,36 @@ DuckDB extensions require the exact DuckDB version they were built against.
 1. Initialize agent_runs and bundle the pinned Lance conversion submodule.
 2. Add the single ingestion function, Harbor adapter, and hierarchy-preserving uploads.
 3. Convert discovered ATIF trajectories to Lance and add end-to-end coverage.
+
+## Upload a completed Harbor job
+
+```sql
+LOAD agent_runs;
+SELECT * FROM ingest_agent_run(
+    '/local/harbor/job',
+    format := 'harbor',
+    job_destination := 's3://bucket/jobs/exact-job-prefix',
+    dry_run := false
+);
+```
+
+`job_destination` is the exact destination directory/prefix, with no generated
+job ID or directory name appended. All regular files below the source are copied
+byte-for-byte under their original relative paths, including logs and artifacts.
+The source is a local directory with `config.json` and `result.json` at its root.
+Symlinks and special files are rejected. Empty directories have no object-storage
+representation. Local paths and DuckDB writable filesystem URIs are supported;
+for S3, load `httpfs` and configure DuckDB secrets before ingesting.
+
+`dry_run := true` validates and plans the upload without writes. EXPLAIN and
+PREPARE do not upload files. Existing target objects cause an error, rather than
+an overwrite. Transfers stream through a 1 MiB buffer. External writes are not
+transactional: failures may leave partial outputs, and concurrent writers must
+use distinct destination prefixes. Use a fresh prefix when retrying.
+
+The returned row contains the destination, file count, total source bytes, and
+`planned` or `uploaded` status. No catalog tables are created.
+
+```sh
+python3 test/integration/test_ingest.py
+```
