@@ -13,7 +13,9 @@ bool IsRegularFile(FileSystem &fs, const string &path) {
 	return metadata && metadata->file_type == FileType::FILE_TYPE_REGULAR;
 }
 
-vector<string> InventoryRun(ClientContext &context, FileSystem &fs, RunPlan &plan) {
+//! Collect regular files beneath plan.source into plan.files and accumulate plan.total_bytes.
+//! Return sorted job-relative subdirectory paths; reject resolvable symlinks before descending.
+vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan &plan) {
 	vector<string> directories;
 	vector<string> pending {""};
 	while (!pending.empty()) {
@@ -102,7 +104,7 @@ bool Overlaps(const string &a, const string &b) {
 RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
-	InventoryRun(context, fs, plan);
+	ScanRunDirectory(context, fs, plan);
 	return plan;
 }
 
