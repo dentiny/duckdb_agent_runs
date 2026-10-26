@@ -47,7 +47,7 @@ vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan 
 		auto relative_directory = std::move(pending.back());
 		pending.pop_back();
 		auto directory = relative_directory.empty() ? plan.source : fs.JoinPath(plan.source, relative_directory);
-		auto listed = fs.ListFiles(directory, [&](const string &name, bool) {
+		const bool listing_succeeded = fs.ListFiles(directory, [&](const string &name, bool) {
 			context.InterruptCheck();
 			auto relative = relative_directory.empty() ? name : StringUtil::Format("%s/%s", relative_directory, name);
 			auto metadata = InspectDirectoryEntry(fs, fs.JoinPath(plan.source, relative));
@@ -58,7 +58,7 @@ vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan 
 			}
 			AppendRunFile(plan, std::move(relative), idx_t(metadata.file_size));
 		});
-		if (!listed) {
+		if (!listing_succeeded) {
 			throw IOException("Cannot list Harbor directory: %s", directory);
 		}
 	}
