@@ -20,6 +20,7 @@ struct RunOptions {
 };
 
 struct RunFile {
+	//! Path relative to the job root; append to source/destination roots to preserve the job hierarchy.
 	string relative_path;
 	idx_t size;
 };
