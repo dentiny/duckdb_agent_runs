@@ -3,13 +3,14 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/settings.hpp"
 namespace duckdb {
+namespace {
 struct RunBindData : public TableFunctionData {
 	RunOptions options;
 };
 struct RunState : public GlobalTableFunctionState {
 	bool done = false;
 };
-static string RequiredString(const Value &value, const char *name) {
+string RequiredString(const Value &value, const char *name) {
 	if (value.IsNull()) {
 		throw InvalidInputException("%s must not be NULL", name);
 	}
@@ -19,14 +20,14 @@ static string RequiredString(const Value &value, const char *name) {
 	}
 	return result;
 }
-static RunFormat ParseRunFormat(const string &format) {
+RunFormat ParseRunFormat(const string &format) {
 	if (format == "harbor") {
 		return RunFormat::HARBOR;
 	}
 	throw InvalidInputException("Unsupported run format: %s", format);
 }
-static unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                        vector<Identifier> &names) {
+unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
+                                 vector<Identifier> &names) {
 	auto data = make_uniq<RunBindData>();
 	data->options.source = RequiredString(input.inputs[0], "job_directory");
 	for (auto &parameter : input.named_parameters) {
@@ -49,10 +50,10 @@ static unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput 
 	types = {LogicalType::VARCHAR, LogicalType::UBIGINT, LogicalType::UBIGINT, LogicalType::VARCHAR};
 	return std::move(data);
 }
-static unique_ptr<GlobalTableFunctionState> InitRun(ClientContext &, TableFunctionInitInput &) {
+unique_ptr<GlobalTableFunctionState> InitRun(ClientContext &, TableFunctionInitInput &) {
 	return make_uniq<RunState>();
 }
-static void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
+void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
 	auto &state = input.global_state->Cast<RunState>();
 	if (state.done) {
 		return;
@@ -71,6 +72,8 @@ static void IngestRun(ClientContext &context, TableFunctionInput &input, DataChu
 	output.CheckCardinality(1);
 	state.done = true;
 }
+} // namespace
+
 void RegisterRunIngest(ExtensionLoader &loader) {
 	TableFunction function("ingest_agent_run", {LogicalType::VARCHAR}, IngestRun, BindRun, InitRun);
 	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
