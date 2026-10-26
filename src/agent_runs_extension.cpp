@@ -1,13 +1,17 @@
 #define DUCKDB_EXTENSION_MAIN
 #include "agent_runs_extension.hpp"
-#include "lance_conversion_extension.hpp"
 #include "duckdb/main/database.hpp"
+#include "lance_conversion_extension.hpp"
+
 namespace duckdb {
-static void LoadInternal(ExtensionLoader &loader) {
+namespace {
+void LoadInternal(ExtensionLoader &loader) {
 	DuckDB db(loader.GetDatabaseInstance());
 	db.LoadStaticExtension<LanceConversionExtension>();
-	loader.SetDescription("Upload agent run artifacts and convert trajectories to Lance.");
+	loader.SetDescription("Read ATIF trajectories and convert them to Lance datasets.");
 }
+} // namespace
+
 void AgentRunsExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }

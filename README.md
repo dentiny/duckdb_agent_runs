@@ -1,29 +1,50 @@
 # agent_runs
 
-DuckDB extension for uploading complete agent runs and converting their trajectories to Lance.
-Harbor is the first input adapter. Job/Trial metadata catalog support is separate future work.
-
-The pinned `external/duckdb_lance_conversion` Git submodule supplies ATIF reading,
-media handling, and Lance writing. Both extensions build against the same DuckDB
-submodule. `LOAD agent_runs` loads the statically bundled conversion dependency;
-no runtime download or `INSTALL` is needed.
+DuckDB extension for ATIF trajectory conversion and agent-run metadata ingestion.
+The pinned `external/duckdb_lance_conversion` submodule supplies the ATIF reader,
+media embedding, and Lance writer. `LOAD agent_runs` loads the bundled dependency.
 
 ## Build
 
 ```sh
-git clone --recurse-submodules https://github.com/dentiny/duckdb_agent_runs.git
-cd duckdb_agent_runs
-# Requires CMake, a C++17 compiler, Cargo, and protoc (or vcpkg protobuf).
-GEN=ninja make
+git submodule update --init --recursive
+GEN=ninja make release
 make test
 ```
 
-For an existing checkout, run `git submodule update --init --recursive` first.
-The loadable binary is `build/release/extension/agent_runs/agent_runs.duckdb_extension`.
-DuckDB extensions require the exact DuckDB version they were built against.
+Requires CMake, C++17, Cargo, and protoc. DuckDB is pinned to v2.0.0; loadable
+extensions require the exact DuckDB version they were built against.
 
-## Review sequence
+## ATIF to Lance
 
-1. Initialize agent_runs and bundle the pinned Lance conversion submodule.
-2. Add the single ingestion function, Harbor adapter, and hierarchy-preserving uploads.
-3. Convert discovered ATIF trajectories to Lance and add end-to-end coverage.
+Use the bundled conversion extension directly:
+
+```sql
+LOAD agent_runs;
+
+COPY (SELECT * FROM read_atif('/data/trial/agent/trajectory.json'))
+TO 's3://bucket/trajectories/job-id/trial-id.lance'
+(FORMAT LANCE, STORAGE_VERSION '2.2', COLUMN_COMPRESSION {
+    'steps.message.text': 'lz4',
+    'steps.observation.results.content.text': 'lz4'
+});
+```
+
+The destination is the exact dataset URI supplied to `COPY`. Text codecs are
+`lz4`, `zstd`, and `none`. The reader accepts JSON/JSONL and gzip, with local,
+S3, or HTTP(S) sources. Relative image/audio references resolve beside the
+trajectory and their bytes are embedded in Lance. Configure DuckDB S3 secrets
+before reading or writing S3 datasets. Other dataset formats can use the bundled
+conversion extension's readers and Lance writer directly as well.
+
+This extension does not copy job directories or upload arbitrary artifacts.
+Job/trial ingestion into typed DuckDB tables is a separate PR.
+
+## Tests
+
+`make test` runs native SQLLogicTests in `test/sql/` against repository-owned
+`testdata/` fixtures, including text, gzip, and image/audio trajectories. There
+is no Python integration test runner. Optional S3 tests use the variables listed
+in `test/README.md`. CI runs them against a disposable RustFS service.
+
+Use `make format-all` to format C++, SQL tests, and CMake files.

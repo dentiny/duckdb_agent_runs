@@ -1,6 +1,7 @@
 # name: test/sql/agent_runs.test
 # description: bundled conversion dependency
 # group: [sql]
+
 require agent_runs
 
 query I
@@ -9,6 +10,6 @@ SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'lance_conversio
 1
 
 query T
-SELECT trajectory_id FROM read_atif('external/duckdb_lance_conversion/test/data/trajectory.json');
+SELECT trajectory_id FROM read_atif('testdata/atif/text/trajectory.json');
 ----
 single

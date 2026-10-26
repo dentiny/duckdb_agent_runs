@@ -1,6 +1,9 @@
 #pragma once
-#include "duckdb.hpp"
+
+#include "duckdb/main/extension.hpp"
+
 namespace duckdb {
+
 class AgentRunsExtension : public Extension {
 public:
 	void Load(ExtensionLoader &loader) override;
