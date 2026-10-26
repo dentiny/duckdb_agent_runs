@@ -1,6 +1,14 @@
 #pragma once
-#include "duckdb.hpp"
+
+#include "duckdb/common/string.hpp"
+#include "duckdb/common/typedefs.hpp"
+#include "duckdb/common/vector.hpp"
+
 namespace duckdb {
+
+class ClientContext;
+class ExtensionLoader;
+
 enum class RunFormat : uint8_t { HARBOR };
 
 struct RunOptions {
@@ -10,15 +18,18 @@ struct RunOptions {
 	string job_destination;
 	bool dry_run = false;
 };
+
 struct RunFile {
 	string relative_path;
 	idx_t size;
 };
+
 struct RunPlan {
 	string source;
 	vector<RunFile> files;
 	idx_t total_bytes = 0;
 };
+
 //! Inspect a local Harbor job and inventory its regular files in stable path order.
 //! Require config.json/result.json and reject resolvable internal symlinks; write nothing.
 //! Directory enumeration follows the calling context's DuckDB filesystem semantics.

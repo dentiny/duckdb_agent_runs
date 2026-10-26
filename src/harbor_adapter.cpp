@@ -1,8 +1,8 @@
-#include "run_ingest.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "run_ingest.hpp"
 #include <algorithm>
 
 namespace duckdb {

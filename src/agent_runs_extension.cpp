@@ -3,6 +3,7 @@
 #include "duckdb/main/database.hpp"
 #include "lance_conversion_extension.hpp"
 #include "run_ingest.hpp"
+
 namespace duckdb {
 namespace {
 void LoadInternal(ExtensionLoader &loader) {
