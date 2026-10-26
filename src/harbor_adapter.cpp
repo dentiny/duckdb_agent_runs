@@ -39,7 +39,7 @@ void AppendRunFile(RunPlan &plan, string relative_path, idx_t size) {
 	plan.total_bytes += size;
 }
 
-//! Traverse local directories; entry validation and file accounting are handled separately.
+//! Collect local files and subdirectories, rejecting resolvable symlinks.
 vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan &plan) {
 	vector<string> directories;
 	vector<string> pending {""};
@@ -110,7 +110,7 @@ vector<string> ScanRunObjects(ClientContext &context, FileSystem &fs, RunPlan &p
 	return vector<string>(directories.begin(), directories.end());
 }
 
-//! Scan either source backend and return a stable file inventory and sorted relative directories.
+//! Populate plan.files and total_bytes from either backend; return sorted job-relative directories.
 vector<string> ScanRunFiles(ClientContext &context, FileSystem &fs, RunPlan &plan) {
 	auto directories = Path::FromString(plan.source).IsRemote() ? ScanRunObjects(context, fs, plan)
 	                                                            : ScanRunDirectory(context, fs, plan);
@@ -186,13 +186,8 @@ void FindTrajectory(FileSystem &fs, const string &root, const string &relative_d
 	}
 }
 
-} // namespace
-
-RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
-	auto &fs = FileSystem::GetFileSystem(context);
-	auto plan = InspectHarborRoot(fs, options);
-	auto directories = ScanRunFiles(context, fs, plan);
-
+//! Index immediate step directories once, avoiding repeated scans for each trial.
+unordered_map<string, vector<string>> IndexTrialSteps(const vector<string> &directories) {
 	unordered_map<string, vector<string>> steps_by_trial;
 	for (const auto &directory : directories) {
 		auto marker = directory.rfind("/steps/");
@@ -200,25 +195,45 @@ RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 			steps_by_trial[directory.substr(0, marker)].push_back(directory);
 		}
 	}
+	return steps_by_trial;
+}
+
+//! Recognize direct trials and trials/<name>, excluding the trials container itself.
+bool IsHarborTrialDirectory(const string &directory) {
+	auto parts = StringUtil::Split(directory, '/');
+	return (parts.size() == 1 && directory != "trials") || (parts.size() == 2 && parts[0] == "trials");
+}
+
+//! Discover each trial's primary and step trajectories in stable source-path order.
+void DiscoverHarborTrajectories(FileSystem &fs, const vector<string> &directories, RunPlan &plan) {
+	auto steps_by_trial = IndexTrialSteps(directories);
 	for (const auto &trial : directories) {
-		auto parts = StringUtil::Split(trial, '/');
-		auto is_trial = (parts.size() == 1 && trial != "trials") || (parts.size() == 2 && parts[0] == "trials");
-		if (!is_trial || !IsRegularFile(fs, fs.JoinPath(plan.source, trial, "config.json"))) {
+		if (!IsHarborTrialDirectory(trial) || !IsRegularFile(fs, fs.JoinPath(plan.source, trial, "config.json"))) {
 			continue;
 		}
 		if (!IsRegularFile(fs, fs.JoinPath(plan.source, trial, "result.json"))) {
 			throw InvalidInputException("Harbor trial requires result.json: %s", fs.JoinPath(plan.source, trial));
 		}
-		FindTrajectory(fs, plan.source, trial, trial, trial + ".lance", plan);
+		FindTrajectory(fs, plan.source, trial, trial, StringUtil::Format("%s.lance", trial), plan);
 		auto steps = steps_by_trial.find(trial);
-		if (steps != steps_by_trial.end()) {
-			for (const auto &step : steps->second) {
-				FindTrajectory(fs, plan.source, step, trial, step + ".lance", plan);
-			}
+		if (steps == steps_by_trial.end()) {
+			continue;
+		}
+		for (const auto &step : steps->second) {
+			FindTrajectory(fs, plan.source, step, trial, StringUtil::Format("%s.lance", step), plan);
 		}
 	}
 	std::sort(plan.trajectories.begin(), plan.trajectories.end(),
 	          [](const RunTrajectory &a, const RunTrajectory &b) { return a.relative_source < b.relative_source; });
+}
+
+} // namespace
+
+RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto plan = InspectHarborRoot(fs, options);
+	auto directories = ScanRunFiles(context, fs, plan);
+	DiscoverHarborTrajectories(fs, directories, plan);
 	return plan;
 }
 
