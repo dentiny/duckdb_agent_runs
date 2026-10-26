@@ -70,11 +70,6 @@ each trajectory row. Status is `planned`, `uploaded` (no trajectories), or
 any success rows are emitted, including when the caller uses LIMIT. No catalog
 tables are created.
 
-```sh
-make release
-make test
-```
-
 
 ## Trajectory destinations and supported Harbor layouts
 
@@ -113,17 +108,21 @@ Use distinct destination prefixes for concurrent ingestion and a fresh pair of
 prefixes after an incomplete attempt. No automatic overwrite, catalog
 registration, durable queue, or retry/resume protocol is provided.
 
-## Integration tests
+## Tests
 
-The default tests use only Python's standard library and the built DuckDB CLI:
+All ingestion tests are DuckDB SQLLogicTests in `test/sql/`. Build and run them
+with the standard extension workflow:
 
 ```sh
-python3 test/integration/test_ingest.py -v
+make release
+make test
 ```
 
-For S3 tests, install `moto[server]==5.1.15`, install DuckDB's `httpfs` extension,
-and pass its binary path with `--httpfs`. Tests start an ephemeral S3 emulator on
-localhost with dummy credentials. No cloud account or bucket is used. The CI
-integration workflow runs both local and S3 tests, including byte-exact artifact
-copies, embedded PNG/WAV payloads after source deletion, multi-step/gzip inputs,
-preview/EXPLAIN behavior, validation, and duplicate protection.
+The tests read checked-in Harbor job and ATIF fixtures from `testdata/`, covering
+artifact byte fidelity, text/image/audio conversion with all supported codecs,
+multi-step/gzip input, preview/EXPLAIN/PREPARE behavior, validation, symlink
+rejection, and duplicate protection. They write local outputs only under the
+DuckDB test runner's temporary directory.
+
+The optional S3 SQLLogicTest requires `httpfs` and a disposable S3-compatible
+service. See `test/README.md` for configuration. CI runs it against RustFS.

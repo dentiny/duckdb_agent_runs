@@ -1,0 +1,76 @@
+# name: test/sql/ingest_conversion.test
+# description: ATIF text, gzip, and multimodal ingestion into Lance
+# group: [sql]
+
+require agent_runs
+
+# Each supported codec must convert real multimodal ATIF input.
+foreach codec lz4 zstd none
+
+query TI
+SELECT status, ends_with(trajectory_destination, '/task__abc.lance')
+FROM ingest_agent_run('testdata/harbor/multimodal',
+    job_destination := '{TEST_DIR}/{codec}/job',
+    trajectory_destination := '{TEST_DIR}/{codec}/trajectories/', text_compression := '{codec}');
+----
+ingested	true
+
+query I
+SELECT count(*) > 0 FROM glob('{TEST_DIR}/{codec}/trajectories/task__abc.lance/_versions/*.manifest');
+----
+true
+
+# Each image/audio payload occurs in both message and tool observation.
+# Read only the written Lance fragments, not the uploaded media files.
+query II
+SELECT sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-image.png')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-image.png'))),
+       sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')))
+FROM read_blob('{TEST_DIR}/{codec}/trajectories/task__abc.lance/data/*.lance');
+----
+2	2
+
+# A pre-existing dataset prevents any upload to a different job root.
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/multimodal',
+    job_destination := '{TEST_DIR}/{codec}/another-job',
+    trajectory_destination := '{TEST_DIR}/{codec}/trajectories');
+----
+already exists
+
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/{codec}/another-job/**/*');
+----
+0
+
+endloop
+
+# Default compression and both plain JSON/gzip in a trials container with steps.
+query TT rowsort
+SELECT status, regexp_extract(trajectory_destination, '(step-[12]\.lance)$', 1)
+FROM ingest_agent_run('testdata/harbor/multistep',
+    job_destination := '{TEST_DIR}/steps/job', trajectory_destination := '{TEST_DIR}/steps/trajectories');
+----
+ingested	step-1.lance
+ingested	step-2.lance
+
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/steps/trajectories/**/_versions/*.manifest');
+----
+2
+
+# Conversion errors must surface even when a LIMIT would consume only the first row.
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/invalid_later',
+    job_destination := '{TEST_DIR}/invalid/job', trajectory_destination := '{TEST_DIR}/invalid/trajectories') LIMIT 1;
+----
+ATIF
+
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/missing_media',
+    job_destination := '{TEST_DIR}/missing/job', trajectory_destination := '{TEST_DIR}/missing/trajectories');
+----
+media

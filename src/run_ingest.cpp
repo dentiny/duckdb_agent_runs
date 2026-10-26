@@ -44,7 +44,7 @@ TextCompression ParseTextCompression(const string &compression) {
 	throw InvalidInputException("text_compression must be lz4, zstd, or none");
 }
 unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                        vector<Identifier> &names) {
+                                 vector<Identifier> &names) {
 	auto data = make_uniq<RunBindData>();
 	data->options.source = RequiredString(input.inputs[0], "job_directory");
 	for (auto &parameter : input.named_parameters) {

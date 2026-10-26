@@ -52,7 +52,7 @@ jobs:
       - name: Install httpfs
         run: build/release/duckdb -c "SET extension_directory='$PWD/build/release/repository'; INSTALL httpfs;"
       - name: Run SQLLogicTests
-        run: build/release/test/unittest "test/sql/*"
+        run: build/release/test/unittest --require agent_runs --require httpfs "test/sql/*"
       - name: Stop S3 service
         if: always()
-        run: docker rm -f agent-runs-s3
+        run: docker rm -fv agent-runs-s3

@@ -1,0 +1,80 @@
+# name: test/sql/ingest_s3.test
+# description: Upload Harbor artifacts and embedded ATIF media to S3
+# group: [sql]
+
+require-env AGENT_RUNS_S3_ENDPOINT
+
+require-env AGENT_RUNS_S3_BUCKET
+
+require-env AGENT_RUNS_S3_KEY_ID
+
+require-env AGENT_RUNS_S3_SECRET
+
+require agent_runs
+
+require httpfs
+
+# Use a fresh prefix on every run. The endpoint is a disposable local S3 service.
+statement ok
+SET VARIABLE s3_root = 's3://{AGENT_RUNS_S3_BUCKET}/agent-runs-' || uuid()::VARCHAR;
+
+statement ok
+CREATE SECRET agent_runs_test (TYPE S3, KEY_ID '{AGENT_RUNS_S3_KEY_ID}',
+    SECRET '{AGENT_RUNS_S3_SECRET}', REGION 'us-east-1', ENDPOINT '{AGENT_RUNS_S3_ENDPOINT}',
+    URL_STYLE 'path', USE_SSL false, SCOPE 's3://{AGENT_RUNS_S3_BUCKET}/');
+
+query T
+SELECT status FROM ingest_agent_run('testdata/harbor/multimodal', dry_run := true,
+    job_destination := getvariable('s3_root') || '/job',
+    trajectory_destination := getvariable('s3_root') || '/trajectories');
+----
+planned
+
+query I
+SELECT count(*) FROM glob(getvariable('s3_root') || '/**');
+----
+0
+
+query T
+SELECT status FROM ingest_agent_run('testdata/harbor/multimodal',
+    job_destination := getvariable('s3_root') || '/job',
+    trajectory_destination := getvariable('s3_root') || '/trajectories');
+----
+ingested
+
+query II
+SELECT count(*), bool_and(coalesce(source.content = target.content, false))
+FROM read_blob('testdata/harbor/multimodal/**/*') source
+FULL JOIN read_blob(getvariable('s3_root') || '/job/**/*') target
+ON substring(target.filename, length(getvariable('s3_root') || '/job') + 1) =
+   substring(source.filename, length('testdata/harbor/multimodal') + 1);
+----
+7	true
+
+query I
+SELECT count(*) > 0 FROM glob(getvariable('s3_root') || '/trajectories/task__abc.lance/_versions/*.manifest');
+----
+true
+
+query II
+SELECT sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-image.png')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-image.png'))),
+       sum((length(hex(content)) - length(replace(hex(content),
+           (SELECT hex(content) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')), ''))) /
+           (SELECT length(hex(content)) FROM read_blob('testdata/atif/multimodal/atif-audio.wav')))
+FROM read_blob(getvariable('s3_root') || '/trajectories/task__abc.lance/data/*.lance');
+----
+2	2
+
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/multimodal',
+    job_destination := getvariable('s3_root') || '/another-job',
+    trajectory_destination := getvariable('s3_root') || '/trajectories');
+----
+already exists
+
+query I
+SELECT count(*) FROM glob(getvariable('s3_root') || '/another-job/**');
+----
+0

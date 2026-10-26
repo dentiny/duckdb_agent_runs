@@ -23,11 +23,12 @@ SELECT count(*) FROM glob('{TEST_DIR}/**/*');
 ----
 0
 
-query TII
-SELECT status, file_count, total_bytes = (SELECT sum(size) FROM read_blob('testdata/harbor/artifacts/**/*'))
+query TIIII
+SELECT status, file_count, total_bytes = (SELECT sum(size) FROM read_blob('testdata/harbor/artifacts/**/*')),
+       trajectory_source IS NULL, trajectory_destination IS NULL
 FROM ingest_agent_run('testdata/harbor/artifacts', job_destination := '{TEST_DIR}/uploaded');
 ----
-uploaded	6	true
+uploaded	6	true	true	true
 
 # Compare every artifact, including binary content and an empty file.
 query II
