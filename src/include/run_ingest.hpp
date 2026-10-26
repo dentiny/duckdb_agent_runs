@@ -12,7 +12,7 @@ class ExtensionLoader;
 enum class RunFormat : uint8_t { HARBOR };
 
 struct RunOptions {
-	//! Local job directory supplied by the job_directory SQL argument.
+	//! Job directory or object-storage prefix supplied by the job_directory SQL argument.
 	string source;
 	RunFormat format = RunFormat::HARBOR;
 	string job_destination;
@@ -31,7 +31,7 @@ struct RunPlan {
 	idx_t total_bytes = 0;
 };
 
-//! Inspect a local Harbor job and inventory its regular files in stable path order.
+//! Inspect a Harbor job directory or object-storage prefix and inventory its regular files in stable path order.
 //! Require config.json/result.json and reject resolvable internal symlinks; write nothing.
 //! Directory enumeration follows the calling context's DuckDB filesystem semantics.
 RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options);

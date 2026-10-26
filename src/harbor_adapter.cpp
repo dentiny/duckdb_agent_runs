@@ -1,6 +1,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "run_ingest.hpp"
 #include <algorithm>
@@ -60,14 +61,53 @@ vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan 
 	return directories;
 }
 
-RunPlan InspectHarborRoot(FileSystem &fs, const RunOptions &options) {
-	if (Path::FromString(options.source).IsRemote()) {
-		throw InvalidInputException("job_directory must be a local directory");
+//! Collect files beneath an object-storage prefix and derive their job-relative parent directories.
+//! Object stores expose directory hierarchies through key prefixes rather than directory metadata.
+vector<string> ScanRunObjects(ClientContext &context, FileSystem &fs, RunPlan &plan) {
+	unordered_set<string> directories;
+	const auto prefix = plan.source + "/";
+	for (const auto &entry : fs.Glob(prefix + "**")) {
+		context.InterruptCheck();
+		if (!StringUtil::StartsWith(entry.path, prefix)) {
+			throw IOException("Listed object is outside the job prefix: %s", entry.path);
+		}
+		auto relative = entry.path.substr(prefix.size());
+		if (relative.empty() || relative.back() == '/') {
+			continue;
+		}
+		if (Path::FromString(relative).IsAbsolute() || relative.find('\\') != string::npos ||
+		    Path::Normalize(relative) != relative) {
+			throw InvalidInputException("Source object key must be a normalized job-relative path: %s", entry.path);
+		}
+		auto metadata = fs.GetStatsIfExists(entry);
+		if (!metadata || metadata->file_size < 0 || metadata->file_type != FileType::FILE_TYPE_REGULAR) {
+			throw IOException("Cannot determine source object metadata: %s", entry.path);
+		}
+		auto size = idx_t(metadata->file_size);
+		plan.total_bytes += size;
+		plan.files.push_back({relative, size});
+		for (auto separator = relative.find('/'); separator != string::npos;
+		     separator = relative.find('/', separator + 1)) {
+			directories.insert(relative.substr(0, separator));
+		}
 	}
+	std::sort(plan.files.begin(), plan.files.end(),
+	          [](const RunFile &a, const RunFile &b) { return a.relative_path < b.relative_path; });
+	vector<string> result(directories.begin(), directories.end());
+	std::sort(result.begin(), result.end());
+	return result;
+}
+
+RunPlan InspectHarborRoot(FileSystem &fs, const RunOptions &options) {
 	RunPlan plan;
-	plan.source = fs.CanonicalizePath(options.source);
-	if (!fs.DirectoryExists(plan.source)) {
-		throw InvalidInputException("job_directory must be a local directory");
+	const auto remote = Path::FromString(options.source).IsRemote();
+	plan.source = remote ? options.source : fs.CanonicalizePath(options.source);
+	if (remote) {
+		while (!plan.source.empty() && plan.source.back() == '/') {
+			plan.source.pop_back();
+		}
+	} else if (!fs.DirectoryExists(plan.source)) {
+		throw InvalidInputException("job_directory must be a directory");
 	}
 	for (auto name : {"config.json", "result.json"}) {
 		if (!IsRegularFile(fs, fs.JoinPath(plan.source, name))) {
@@ -104,7 +144,11 @@ bool Overlaps(const string &a, const string &b) {
 RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
-	ScanRunDirectory(context, fs, plan);
+	if (Path::FromString(plan.source).IsRemote()) {
+		ScanRunObjects(context, fs, plan);
+	} else {
+		ScanRunDirectory(context, fs, plan);
+	}
 	return plan;
 }
 

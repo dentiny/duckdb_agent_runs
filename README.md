@@ -43,7 +43,9 @@ SELECT * FROM ingest_agent_run(
 `job_destination` is the exact destination directory/prefix, with no generated
 job ID or directory name appended. All regular files below the source are copied
 byte-for-byte under their original relative paths, including logs and artifacts.
-The source is a local directory with `config.json` and `result.json` at its root.
+The source is a directory or object-storage prefix with `config.json` and
+`result.json` at its root. Remote sources require a DuckDB filesystem that can
+list and read objects; S3 sources use the configured `httpfs` secrets.
 Planning and uploads use the calling connection's DuckDB filesystem. Resolvable
 internal symlinks are rejected. On POSIX, DuckDB's directory listing omits dangling
 symlinks and special files; these are not uploaded. Empty directories have no
