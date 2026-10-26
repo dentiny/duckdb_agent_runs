@@ -4,12 +4,15 @@
 #include "lance_conversion_extension.hpp"
 #include "duckdb/main/database.hpp"
 namespace duckdb {
-static void LoadInternal(ExtensionLoader &loader) {
+namespace {
+void LoadInternal(ExtensionLoader &loader) {
 	DuckDB db(loader.GetDatabaseInstance());
 	db.LoadStaticExtension<LanceConversionExtension>();
 	RegisterRunIngest(loader);
 	loader.SetDescription("Upload agent run artifacts and convert trajectories to Lance.");
 }
+} // namespace
+
 void AgentRunsExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
