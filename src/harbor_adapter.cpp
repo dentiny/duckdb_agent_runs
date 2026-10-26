@@ -26,7 +26,7 @@ vector<string> ScanRunDirectory(ClientContext &context, FileSystem &fs, RunPlan 
 		auto directory = relative_directory.empty() ? plan.source : fs.JoinPath(plan.source, relative_directory);
 		auto listed = fs.ListFiles(directory, [&](const string &name, bool) {
 			context.InterruptCheck();
-			auto relative = relative_directory.empty() ? name : relative_directory + "/" + name;
+			auto relative = relative_directory.empty() ? name : StringUtil::Format("%s/%s", relative_directory, name);
 			auto path = fs.JoinPath(plan.source, relative);
 			// Listing follows resolvable links. Compare with the canonical path before descending.
 			// Dangling links and special files omitted by DuckDB's listing are not ingested.
