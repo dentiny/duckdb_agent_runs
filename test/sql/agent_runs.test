@@ -1,7 +1,6 @@
 # name: test/sql/agent_runs.test
 # description: bundled conversion dependency
 # group: [sql]
-
 require agent_runs
 
 query I

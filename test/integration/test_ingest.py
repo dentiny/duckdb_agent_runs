@@ -57,7 +57,11 @@ class IngestTest(unittest.TestCase):
             text=True,
             capture_output=True,
             timeout=120,
-            env={k: v for k, v in os.environ.items() if k not in ("CODEX_CI", "CODEX_THREAD_ID")},
+            env={
+                k: v
+                for k, v in os.environ.items()
+                if k not in ("CODEX_CI", "CODEX_THREAD_ID")
+            },
         )
         if error:
             self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -88,11 +92,21 @@ class IngestTest(unittest.TestCase):
     def test_upload_byte_exact_and_duplicate(self):
         result = self.sql(self.ingest())
         self.assertEqual(result[0]["status"], "uploaded")
-        originals = {p.relative_to(self.source): p.read_bytes() for p in self.source.rglob("*") if p.is_file()}
-        copied = {p.relative_to(self.destination): p.read_bytes() for p in self.destination.rglob("*") if p.is_file()}
+        originals = {
+            p.relative_to(self.source): p.read_bytes()
+            for p in self.source.rglob("*")
+            if p.is_file()
+        }
+        copied = {
+            p.relative_to(self.destination): p.read_bytes()
+            for p in self.destination.rglob("*")
+            if p.is_file()
+        }
         self.assertEqual(copied, originals)
         self.assertEqual(int(result[0]["file_count"]), len(originals))
-        self.assertEqual(int(result[0]["total_bytes"]), sum(map(len, originals.values())))
+        self.assertEqual(
+            int(result[0]["total_bytes"]), sum(map(len, originals.values()))
+        )
         self.sql(self.ingest(), error="already exists")
         self.assertEqual((self.destination / "config.json").read_bytes(), b"{}")
 
@@ -182,14 +196,20 @@ class IngestTest(unittest.TestCase):
             self.ingest(trajectory_destination=self.destination / "nested"),
             error="must not overlap",
         )
-        self.sql(self.ingest(text_compression="invalid"), error="text_compression must be")
-        self.sql(self.ingest(trajectory_destination="gs://bucket/out"), error="supports only")
+        self.sql(
+            self.ingest(text_compression="invalid"), error="text_compression must be"
+        )
+        self.sql(
+            self.ingest(trajectory_destination="gs://bucket/out"), error="supports only"
+        )
         self.add_trajectory(compressed=True)
         self.sql(self.ingest(), error="Multiple primary trajectories")
         self.assertFalse(self.destination.exists())
 
     def test_missing_media_surfaces_failure(self):
-        fixture = Path("external/duckdb_lance_conversion/test/data/trajectory_missing_media.json")
+        fixture = Path(
+            "external/duckdb_lance_conversion/test/data/trajectory_missing_media.json"
+        )
         shutil.copyfile(fixture, self.trial / "agent" / "trajectory.json")
         self.sql(self.ingest(), error="media")
 
@@ -226,10 +246,14 @@ class IngestTest(unittest.TestCase):
 
     def test_no_catalog_tables(self):
         self.sql(self.ingest())
-        self.assertEqual(self.sql("SELECT count(*) AS n FROM information_schema.tables")[0]["n"], 0)
+        self.assertEqual(
+            self.sql("SELECT count(*) AS n FROM information_schema.tables")[0]["n"], 0
+        )
 
 
-@unittest.skipUnless(args.httpfs, "pass --httpfs to run S3 integration tests (requires moto[server])")
+@unittest.skipUnless(
+    args.httpfs, "pass --httpfs to run S3 integration tests (requires moto[server])"
+)
 class S3Test(unittest.TestCase):
     sql = IngestTest.sql
     ingest = IngestTest.ingest
@@ -270,7 +294,10 @@ class S3Test(unittest.TestCase):
         self.trajectory_destination = f"s3://{self.bucket}/trajectories/my-job"
 
     def objects(self):
-        return {obj["Key"] for obj in self.s3.list_objects_v2(Bucket=self.bucket).get("Contents", [])}
+        return {
+            obj["Key"]
+            for obj in self.s3.list_objects_v2(Bucket=self.bucket).get("Contents", [])
+        }
 
     def test_s3_upload_and_convert(self):
         fixtures = Path("external/duckdb_lance_conversion/test/data")
@@ -284,14 +311,21 @@ class S3Test(unittest.TestCase):
                 key = "jobs/my-job/" + source.relative_to(self.source).as_posix()
                 actual = self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
                 self.assertEqual(actual, source.read_bytes())
-        self.assertTrue(any("/_versions/" in key and key.endswith(".manifest") for key in self.objects()))
+        self.assertTrue(
+            any(
+                "/_versions/" in key and key.endswith(".manifest")
+                for key in self.objects()
+            )
+        )
         payloads = [
             self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
             for key in self.objects()
             if key.startswith("trajectories/") and key.endswith(".lance")
         ]
         for name in ["atif-image.png", "atif-audio.wav"]:
-            self.assertEqual(sum(data.count((fixtures / name).read_bytes()) for data in payloads), 2)
+            self.assertEqual(
+                sum(data.count((fixtures / name).read_bytes()) for data in payloads), 2
+            )
         before = self.objects()
         self.sql(
             self.ingest(job_destination=f"s3://{self.bucket}/another"),
