@@ -166,18 +166,68 @@ void CheckSourceDestOverlap(const string &source, const string &destination, con
 	}
 }
 
+void FindTrajectory(FileSystem &fs, const string &root, const string &relative_directory, const string &trial,
+                    const string &dataset, RunPlan &plan) {
+	vector<string> found;
+	for (auto name : {"trajectory.json", "trajectory.jsonl", "trajectory.json.gz", "trajectory.jsonl.gz"}) {
+		for (const auto &parent : {relative_directory + "/agent", relative_directory}) {
+			auto relative = parent + "/" + name;
+			if (IsRegularFile(fs, fs.JoinPath(root, relative))) {
+				found.push_back(std::move(relative));
+			}
+		}
+	}
+	if (found.size() > 1) {
+		throw InvalidInputException("Multiple primary trajectories for %s", fs.JoinPath(root, relative_directory));
+	}
+	if (!found.empty()) {
+		plan.trajectories.push_back({trial, std::move(found[0]), dataset});
+	}
+}
+
 } // namespace
 
 RunPlan PlanHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto plan = InspectHarborRoot(fs, options);
-	ScanRunFiles(context, fs, plan);
+	auto directories = ScanRunFiles(context, fs, plan);
+	for (const auto &trial : directories) {
+		auto parts = StringUtil::Split(trial, '/');
+		auto is_trial = (parts.size() == 1 && trial != "trials") || (parts.size() == 2 && parts[0] == "trials");
+		if (!is_trial || !IsRegularFile(fs, fs.JoinPath(plan.source, trial, "config.json"))) {
+			continue;
+		}
+		if (!IsRegularFile(fs, fs.JoinPath(plan.source, trial, "result.json"))) {
+			throw InvalidInputException("Harbor trial requires result.json: %s", fs.JoinPath(plan.source, trial));
+		}
+		FindTrajectory(fs, plan.source, trial, trial, trial + ".lance", plan);
+		auto prefix = trial + "/steps/";
+		for (const auto &step : directories) {
+			if (StringUtil::StartsWith(step, prefix) && step.find('/', prefix.size()) == string::npos) {
+				FindTrajectory(fs, plan.source, step, trial, step + ".lance", plan);
+			}
+		}
+	}
+	std::sort(plan.trajectories.begin(), plan.trajectories.end(),
+	          [](const RunTrajectory &a, const RunTrajectory &b) { return a.relative_source < b.relative_source; });
 	return plan;
 }
 
 void ValidateDestinations(ClientContext &context, const RunOptions &options, const RunPlan &plan) {
 	auto &fs = FileSystem::GetFileSystem(context);
-	CheckSourceDestOverlap(Normalize(fs, plan.source), Normalize(fs, options.job_destination), "job_directory",
-	                       "job_destination");
+	auto source = Normalize(fs, plan.source);
+	auto job = Normalize(fs, options.job_destination);
+	CheckSourceDestOverlap(source, job, "job_directory", "job_destination");
+	if (!plan.trajectories.empty() && options.trajectory_destination.empty()) {
+		throw InvalidInputException("trajectory_destination is required when the run contains trajectories");
+	}
+	if (!options.trajectory_destination.empty()) {
+		auto trajectory = Normalize(fs, options.trajectory_destination);
+		CheckSourceDestOverlap(source, trajectory, "job_directory", "trajectory_destination");
+		CheckSourceDestOverlap(job, trajectory, "job_destination", "trajectory_destination");
+		if (Path::FromString(trajectory).IsRemote() && !StringUtil::StartsWith(trajectory, "s3://")) {
+			throw InvalidInputException("trajectory_destination supports only local paths and s3:// URIs");
+		}
+	}
 }
 } // namespace duckdb

@@ -12,6 +12,10 @@ jobs:
     env:
       CARGO_BUILD_JOBS: 2
       GEN: ninja
+      AGENT_RUNS_S3_ENDPOINT: 127.0.0.1:9000
+      AGENT_RUNS_S3_BUCKET: agent-runs-test
+      AGENT_RUNS_S3_KEY_ID: agent_runs_test
+      AGENT_RUNS_S3_SECRET: agent_runs_test_password
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,5 +39,20 @@ jobs:
             -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF
           cmake --build build/release --target duckdb unittest agent_runs_loadable_extension -j 2
           cmake --build build/release --target duckdb_local_extension_repo
+      - name: Start disposable S3 service
+        run: |
+          docker run -d --name agent-runs-s3 -p 9000:9000 \
+            -e RUSTFS_ACCESS_KEY="$AGENT_RUNS_S3_KEY_ID" \
+            -e RUSTFS_SECRET_KEY="$AGENT_RUNS_S3_SECRET" \
+            rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+          curl --retry 30 --retry-all-errors --retry-delay 1 --fail --show-error \
+            --aws-sigv4 aws:amz:us-east-1:s3 \
+            --user "$AGENT_RUNS_S3_KEY_ID:$AGENT_RUNS_S3_SECRET" \
+            -X PUT "http://$AGENT_RUNS_S3_ENDPOINT/$AGENT_RUNS_S3_BUCKET"
+      - name: Install httpfs
+        run: build/release/duckdb -c "SET extension_directory='$PWD/build/release/repository'; INSTALL httpfs;"
       - name: Run SQLLogicTests
-        run: build/release/test/unittest --require agent_runs "test/sql/*"
+        run: build/release/test/unittest "test/sql/*"
+      - name: Stop S3 service
+        if: always()
+        run: docker rm -f agent-runs-s3
