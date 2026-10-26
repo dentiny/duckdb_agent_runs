@@ -1,5 +1,5 @@
-#include "duckdb/function/table_function.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/settings.hpp"

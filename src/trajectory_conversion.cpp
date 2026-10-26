@@ -1,8 +1,10 @@
-#include "run_ingest.hpp"
 #include "duckdb/common/file_system.hpp"
-#include "duckdb/main/client_context.hpp"
-#include "duckdb/main/database.hpp"
 #include "duckdb/common/sql_identifier.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/main/database.hpp"
+#include "run_ingest.hpp"
+
 namespace duckdb {
 namespace {
 const char *TextCompressionName(TextCompression compression) {
