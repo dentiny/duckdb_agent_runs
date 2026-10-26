@@ -1,7 +1,9 @@
 #define DUCKDB_EXTENSION_MAIN
 #include "agent_runs_extension.hpp"
 #include "duckdb/main/database.hpp"
+#include "json_extension.hpp"
 #include "lance_conversion_extension.hpp"
+#include "run_ingest.hpp"
 #include "schema_migration.hpp"
 #include "trajectory_conversion.hpp"
 
@@ -9,10 +11,13 @@ namespace duckdb {
 namespace {
 void LoadInternal(ExtensionLoader &loader) {
 	DuckDB db(loader.GetDatabaseInstance());
+	db.LoadStaticExtension<JsonExtension>();
 	db.LoadStaticExtension<LanceConversionExtension>();
 	MigrateAgentRunsSchema(loader.GetDatabaseInstance());
+	RegisterRunIngest(loader);
 	RegisterTrajectoryConversion(loader);
-	loader.SetDescription("Import ATIF trajectories into Lance and manage the job/trial catalog schema.");
+	loader.SetDescription(
+	    "Import ATIF trajectories into Lance and ingest job/trial metadata into a versioned catalog.");
 }
 } // namespace
 

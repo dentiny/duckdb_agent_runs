@@ -40,7 +40,40 @@ embedded in the dataset. Configure DuckDB S3 secrets before using S3 sources
 or destinations.
 
 This extension does not copy job directories or upload arbitrary artifacts.
-Job/trial ingestion into typed DuckDB tables is a separate PR.
+
+## Job/trial metadata ingestion
+
+Loading the extension initializes or upgrades the metadata catalog before ingestion:
+
+```sql
+LOAD agent_runs;
+
+CALL ingest_agent_run(
+    '/data/jobs/my-job',
+    format := 'harbor',
+    owner_email := 'agent@example.com',
+    trajectory_destination := 's3://bucket/trajectories/job-id'
+);
+```
+
+The call reads the job's `config.json` and `result.json`, then the same metadata
+pair from each direct trial directory or `trials/<trial>/` directory. Sources
+can also be S3 prefixes when `httpfs` and the appropriate secret are available.
+The `agent_runs.jobs` and `agent_runs.trials` tables preserve nested typed
+config/result STRUCTs and dynamic VARIANT fields. Their namespace is fixed in
+the database instance's default catalog; the caller's current catalog and search
+path do not redirect ingestion. See `schema/README.md` for the schema design.
+
+Job and trial UUIDs come from Harbor's result documents. `owner_email` is required.
+For jobs with trials, `trajectory_destination` is required and populates each
+`agent_runs.trials.dataset_uri` as `<trajectory_destination>/<trial UUID>.lance`. It refers
+to datasets converted separately: ingestion does not read trajectories, convert
+ATIF, write datasets, or check the destination. Jobs without trials may omit it.
+
+The call returns `job_id`, `job_name`, and `trials_ingested`. Inserts use the
+caller's transaction, including explicit `BEGIN`/`ROLLBACK`. Duplicate IDs,
+constraint violations, or malformed metadata fail the call and roll back its
+inserts. Existing records are never replaced.
 
 ## Tests
 
@@ -49,9 +82,7 @@ Job/trial ingestion into typed DuckDB tables is a separate PR.
 Tests call our conversion API and use a separate, pinned `lance` test dependency
 to read back and compare the stored values and media bytes with those fixtures.
 The reader is built by default; use `BUILD_EXTENSION_TEST_DEPS=none` for builds
-without test dependencies. There
-is no Python integration test runner. Optional S3 tests use the variables listed
-in `test/README.md`.
+without test dependencies. There is no Python integration test runner.
 
 Use `make format-all` to format C++, SQL tests, and CMake files.
 

@@ -12,3 +12,11 @@ The image is a 1024 × 768 RGB pattern. The audio is a 0.1-second 440 Hz mono
 fixtures and compressed text inputs through `import_agent_trajectory`, then
 read the datasets with Lance to compare metadata, text, tool calls, and embedded
 media bytes against the original local files.
+
+`harbor/` contains static native Harbor config/result pairs adapted from
+`ml-infra`'s catalog API fixtures at commit
+`d7af6649c51790c78afc1ed4d5af990a1ec634b7`. Root/trial result files include native
+UUIDs and trial names. Config/result payloads exercise typed nested structures
+and VARIANT values larger than 2^53. The deliberately invalid trajectory files
+must remain unread by metadata ingestion. The invalid-trial fixture exercises
+transaction rollback after the job append; the empty job has no trials.
