@@ -31,8 +31,20 @@ RunFormat ParseRunFormat(const string &format) {
 	}
 	throw InvalidInputException("Unsupported run format: %s", format);
 }
+TextCompression ParseTextCompression(const string &compression) {
+	if (compression == "lz4") {
+		return TextCompression::LZ4;
+	}
+	if (compression == "zstd") {
+		return TextCompression::ZSTD;
+	}
+	if (compression == "none") {
+		return TextCompression::NONE;
+	}
+	throw InvalidInputException("text_compression must be lz4, zstd, or none");
+}
 unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input, vector<LogicalType> &types,
-                                 vector<Identifier> &names) {
+                                        vector<Identifier> &names) {
 	auto data = make_uniq<RunBindData>();
 	data->options.source = RequiredString(input.inputs[0], "job_directory");
 	for (auto &parameter : input.named_parameters) {
@@ -42,7 +54,7 @@ unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input,
 		} else if (name == "trajectory_destination") {
 			data->options.trajectory_destination = RequiredString(parameter.second, "trajectory_destination");
 		} else if (name == "text_compression") {
-			data->options.text_compression = RequiredString(parameter.second, "text_compression");
+			data->options.text_compression = ParseTextCompression(RequiredString(parameter.second, "text_compression"));
 		} else if (name == "format") {
 			data->options.format = ParseRunFormat(RequiredString(parameter.second, "format"));
 		} else if (name == "dry_run") {
@@ -54,10 +66,6 @@ unique_ptr<FunctionData> BindRun(ClientContext &, TableFunctionBindInput &input,
 	}
 	if (data->options.job_destination.empty()) {
 		throw InvalidInputException("job_destination is required");
-	}
-	if (data->options.text_compression != "lz4" && data->options.text_compression != "zstd" &&
-	    data->options.text_compression != "none") {
-		throw InvalidInputException("text_compression must be lz4, zstd, or none");
 	}
 	names = {"job_destination", "file_count",        "total_bytes",           "status",
 	         "trial_name",      "trajectory_source", "trajectory_destination"};

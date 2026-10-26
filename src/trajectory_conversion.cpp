@@ -4,6 +4,20 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/common/sql_identifier.hpp"
 namespace duckdb {
+namespace {
+const char *TextCompressionName(TextCompression compression) {
+	switch (compression) {
+	case TextCompression::LZ4:
+		return "lz4";
+	case TextCompression::ZSTD:
+		return "zstd";
+	case TextCompression::NONE:
+		return "none";
+	default:
+		throw InternalException("Unknown text compression");
+	}
+}
+} // namespace
 void PreflightTrajectories(ClientContext &context, const RunOptions &options, const RunPlan &plan) {
 	auto &fs = FileSystem::GetFileSystem(context);
 	for (const auto &trajectory : plan.trajectories) {
@@ -50,8 +64,9 @@ void ConvertTrajectories(ClientContext &context, const RunOptions &options, cons
 		// Quote literals, never interpolate a path as SQL syntax. Compression is validated at bind.
 		auto sql = "COPY (SELECT * FROM read_atif(" + SQLString::ToString(source) + ")) TO " +
 		           SQLString::ToString(target) + " (FORMAT LANCE, STORAGE_VERSION '2.2', COLUMN_COMPRESSION {" +
-		           "'steps.message.text': '" + options.text_compression + "', " +
-		           "'steps.observation.results.content.text': '" + options.text_compression + "'})";
+		           "'steps.message.text': '" + TextCompressionName(options.text_compression) + "', " +
+		           "'steps.observation.results.content.text': '" + TextCompressionName(options.text_compression) +
+		           "'})";
 		CheckQuery(connection.Query(sql));
 	}
 }

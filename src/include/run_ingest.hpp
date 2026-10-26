@@ -10,6 +10,7 @@ class ClientContext;
 class ExtensionLoader;
 
 enum class RunFormat : uint8_t { HARBOR };
+enum class TextCompression : uint8_t { LZ4, ZSTD, NONE };
 
 struct RunOptions {
 	//! Job directory or object-storage prefix supplied by the job_directory SQL argument.
@@ -17,7 +18,7 @@ struct RunOptions {
 	RunFormat format = RunFormat::HARBOR;
 	string job_destination;
 	string trajectory_destination;
-	string text_compression = "lz4";
+	TextCompression text_compression = TextCompression::LZ4;
 	bool dry_run = false;
 };
 
