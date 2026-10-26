@@ -6,3 +6,6 @@
 	path = extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools
 	branch = main
+[submodule "external/duckdb_lance_conversion"]
+	path = external/duckdb_lance_conversion
+	url = https://github.com/dentiny/duckdb_lance_conversion.git
