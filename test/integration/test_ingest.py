@@ -47,11 +47,7 @@ class IngestTest(unittest.TestCase):
             text=True,
             capture_output=True,
             timeout=120,
-            env={
-                k: v
-                for k, v in os.environ.items()
-                if k not in ("CODEX_CI", "CODEX_THREAD_ID")
-            },
+            env={k: v for k, v in os.environ.items() if k not in ("CODEX_CI", "CODEX_THREAD_ID")},
         )
         if error:
             self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -73,21 +69,11 @@ class IngestTest(unittest.TestCase):
     def test_upload_byte_exact_and_duplicate(self):
         result = self.sql(self.ingest())
         self.assertEqual(result[0]["status"], "uploaded")
-        originals = {
-            p.relative_to(self.source): p.read_bytes()
-            for p in self.source.rglob("*")
-            if p.is_file()
-        }
-        copied = {
-            p.relative_to(self.destination): p.read_bytes()
-            for p in self.destination.rglob("*")
-            if p.is_file()
-        }
+        originals = {p.relative_to(self.source): p.read_bytes() for p in self.source.rglob("*") if p.is_file()}
+        copied = {p.relative_to(self.destination): p.read_bytes() for p in self.destination.rglob("*") if p.is_file()}
         self.assertEqual(copied, originals)
         self.assertEqual(int(result[0]["file_count"]), len(originals))
-        self.assertEqual(
-            int(result[0]["total_bytes"]), sum(map(len, originals.values()))
-        )
+        self.assertEqual(int(result[0]["total_bytes"]), sum(map(len, originals.values())))
         self.sql(self.ingest(), error="already exists")
         self.assertEqual((self.destination / "config.json").read_bytes(), b"{}")
 
@@ -114,9 +100,30 @@ class IngestTest(unittest.TestCase):
         self.assertFalse(self.destination.exists())
 
     def test_symlink_rejected(self):
+        (self.root / "secret").write_text("outside the job")
         (self.source / "link").symlink_to(self.root / "secret")
         self.sql(self.ingest(), error="Symlinks are not supported")
         self.assertFalse(self.destination.exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX DuckDB directory-listing semantics")
+    def test_unlisted_entries_are_ignored(self):
+        (self.source / "dangling-link").symlink_to(self.root / "missing")
+        os.mkfifo(self.source / "fifo")
+        self.sql(self.ingest())
+        self.assertFalse((self.destination / "dangling-link").exists())
+        self.assertFalse((self.destination / "fifo").exists())
+
+    def test_symlink_directory_rejected(self):
+        (self.source / "loop").symlink_to(self.source, target_is_directory=True)
+        self.sql(self.ingest(), error="Symlinks are not supported")
+        self.assertFalse(self.destination.exists())
+
+    def test_canonical_destination_overlap(self):
+        alias = self.root / "job-alias"
+        alias.symlink_to(self.source, target_is_directory=True)
+        self.sql(self.ingest(job_destination=alias / "inside"), error="must not overlap")
+        self.sql(self.ingest(job_destination=self.source / ".." / "job" / "inside"), error="must not overlap")
+        self.assertFalse((self.source / "inside").exists())
 
 
 if __name__ == "__main__":

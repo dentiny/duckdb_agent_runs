@@ -44,8 +44,10 @@ SELECT * FROM ingest_agent_run(
 job ID or directory name appended. All regular files below the source are copied
 byte-for-byte under their original relative paths, including logs and artifacts.
 The source is a local directory with `config.json` and `result.json` at its root.
-Symlinks and special files are rejected. Empty directories have no object-storage
-representation. Local paths and DuckDB writable filesystem URIs are supported;
+Planning and uploads use the calling connection's DuckDB filesystem. Resolvable
+internal symlinks are rejected. On POSIX, DuckDB's directory listing omits dangling
+symlinks and special files; these are not uploaded. Empty directories have no
+object-storage representation. Local paths and DuckDB writable filesystem URIs are supported;
 for S3, load `httpfs` and configure DuckDB secrets before ingesting.
 
 `dry_run := true` validates and plans the upload without writes. EXPLAIN and

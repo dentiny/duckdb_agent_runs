@@ -1,7 +1,7 @@
 #include "run_ingest.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/file_system.hpp"
-#include <filesystem>
+#include "duckdb/common/path.hpp"
 namespace duckdb {
 void UploadRun(ClientContext &context, const RunOptions &options, const RunPlan &plan) {
 	auto &fs = FileSystem::GetFileSystem(context);
@@ -24,7 +24,7 @@ void UploadRun(ClientContext &context, const RunOptions &options, const RunPlan 
 		}
 		const auto target = fs.JoinPath(options.job_destination, file.relative_path);
 		if (target.find("://") == string::npos) {
-			fs.CreateDirectoriesRecursive(std::filesystem::path(target).parent_path().string());
+			fs.CreateDirectoriesRecursive(Path::FromString(target).Parent().ToString());
 		}
 		auto destination = fs.OpenFile(target, FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE |
 		                                           FileFlags::FILE_FLAGS_EXCLUSIVE_CREATE);

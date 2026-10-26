@@ -1,5 +1,4 @@
 #include "run_ingest.hpp"
-#include <filesystem>
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/settings.hpp"
@@ -62,13 +61,8 @@ static void IngestRun(ClientContext &context, TableFunctionInput &input, DataChu
 		throw PermissionException("ingest_agent_run requires enable_external_access");
 	}
 	auto &options = input.bind_data->Cast<RunBindData>().options;
-	RunPlan plan;
-	try {
-		plan = PlanHarborRun(options);
-		ValidateDestinations(options, plan);
-	} catch (const std::filesystem::filesystem_error &error) {
-		throw IOException("Cannot plan Harbor run: %s", error.what());
-	}
+	auto plan = PlanHarborRun(context, options);
+	ValidateDestinations(context, options, plan);
 	UploadRun(context, options, plan);
 	output.data[0].Append(Value(options.job_destination));
 	output.data[1].Append(Value::UBIGINT(plan.files.size()));
