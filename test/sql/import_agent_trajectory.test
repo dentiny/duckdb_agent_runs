@@ -1,0 +1,95 @@
+# name: test/sql/import_agent_trajectory.test
+# description: Read back agent_runs output with the independent Lance test dependency
+# group: [sql]
+
+require agent_runs
+
+query I
+CALL import_agent_trajectory('testdata/atif/multimodal/trajectory.json',
+    trajectory_destination := '{TEST_DIR}/multimodal.lance');
+----
+1
+
+query I
+CALL import_agent_trajectory('testdata/atif/text/trajectory.json.gz',
+    trajectory_destination := '{TEST_DIR}/gzip.lance');
+----
+1
+
+query I
+CALL import_agent_trajectory('testdata/atif/text/trajectory.json',
+    trajectory_destination := '{TEST_DIR}/quote''s.lance');
+----
+1
+
+# The two extensions register the same COPY format. Verify the written datasets
+# in a fresh database with only the independent Lance reader loaded.
+restart no_extension_load
+
+require lance
+
+query I
+SELECT count(*) FROM '{TEST_DIR}/multimodal.lance';
+----
+1
+
+# Check the concrete metadata values from the ATIF fixture.
+query TTTT
+SELECT trajectory_id, atif_schema_version, agent.name, agent.version
+FROM '{TEST_DIR}/multimodal.lance';
+----
+media	ATIF-v1.8	test	1
+
+# The original ATIF document is also preserved byte for byte.
+query I
+SELECT d.raw_json = expected.content
+FROM '{TEST_DIR}/multimodal.lance' d,
+     read_text('testdata/atif/multimodal/trajectory.json') expected;
+----
+true
+
+# Inspect every typed step, including its decoded Unicode text.
+query ITT
+SELECT step.step_id, step.source, decode(step.message[1].text)
+FROM (SELECT unnest(steps) AS step FROM '{TEST_DIR}/multimodal.lance')
+ORDER BY step.step_id;
+----
+1	user	hello 你好🙂
+2	agent	Inspecting the supplied media.
+3	agent	The image is an RGB pattern; the audio is a short tone.
+
+query T
+SELECT decode(steps[2].observation.results[1].content[1].text)
+FROM '{TEST_DIR}/multimodal.lance';
+----
+RGB pattern and a 440 Hz tone.
+
+query TTT
+SELECT steps[2].tool_calls[1].tool_call_id,
+       steps[2].tool_calls[1].function_name,
+       steps[2].tool_calls[1].arguments_json
+FROM '{TEST_DIR}/multimodal.lance';
+----
+inspect-1	inspect_media	{}
+
+# Compare embedded message/observation media bytes with the repository PNG/WAV files.
+query IIII
+SELECT d.steps[1].message[2].source.path = image.content,
+       d.steps[1].message[3].source.path = audio.content,
+       d.steps[2].observation.results[1].content[2].source.path = image.content,
+       d.steps[2].observation.results[1].content[3].source.path = audio.content
+FROM '{TEST_DIR}/multimodal.lance' d,
+     read_blob('testdata/atif/multimodal/atif-image.png') image,
+     read_blob('testdata/atif/multimodal/atif-audio.wav') audio;
+----
+true	true	true	true
+
+foreach dataset gzip quote''s
+
+query TTT
+SELECT trajectory_id, agent.name, decode(steps[1].message[1].text)
+FROM '{TEST_DIR}/{dataset}.lance';
+----
+single	example	hello
+
+endloop
