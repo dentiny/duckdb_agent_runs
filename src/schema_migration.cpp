@@ -1,22 +1,32 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/common/file_system.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "schema_migration.hpp"
 
-#include <iterator>
+#include <map>
 
 namespace duckdb {
 namespace {
 
-struct SchemaMigration {
-	int version;
-	const char *sql;
-};
-
-constexpr SchemaMigration SCHEMA_MIGRATIONS[] = {
-#include "agent_runs_schema_migrations.inc"
-};
+//! Read numbered SQL filenames in version order from the installed migration directory.
+std::map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &directory) {
+	std::map<int32_t, string> migrations;
+	fs.ListFiles(directory, [&](const string &filename, bool is_directory) {
+		if (is_directory || fs.ExtractExtension(filename) != "sql") {
+			return;
+		}
+		auto version = Value(fs.ExtractBaseName(filename)).GetValue<int32_t>();
+		if (version <= 0 || !migrations.emplace(version, fs.JoinPath(directory, filename)).second) {
+			throw InvalidInputException("Invalid or duplicate schema migration version: %s", filename);
+		}
+	});
+	if (migrations.empty()) {
+		throw IOException("No schema migrations found in %s", directory);
+	}
+	return migrations;
+}
 
 //! Execute all statements and surface any failure so the owning transaction rolls back.
 void ExecuteMigrationSQL(Connection &connection, const string &sql) {
@@ -27,7 +37,7 @@ void ExecuteMigrationSQL(Connection &connection, const string &sql) {
 }
 
 //! Apply pending SQL and version records within the owning transaction.
-void ApplySchemaMigrations(Connection &connection) {
+void ApplySchemaMigrations(Connection &connection, const string &directory) {
 	auto name = GetAgentRunsName(*connection.context, "schema_migrations");
 	auto &catalog = Catalog::GetCatalog(*connection.context, name.Catalog());
 	if (!catalog.GetSchema(*connection.context, name.Schema(), OnEntryNotFound::RETURN_NULL)) {
@@ -41,17 +51,19 @@ void ApplySchemaMigrations(Connection &connection) {
 	auto result = connection.Query(StringUtil::Format("SELECT coalesce(max(version), 0) FROM %s", name.ToString()));
 	result->ThrowIfError();
 	auto applied = result->Fetch()->GetValue(0, 0).GetValue<int32_t>();
-	constexpr auto latest = SCHEMA_MIGRATIONS[std::size(SCHEMA_MIGRATIONS) - 1].version;
+	auto migrations = FindSchemaMigrations(FileSystem::GetFileSystem(*connection.context), directory);
+	auto latest = migrations.rbegin()->first;
 	if (applied > latest) {
 		throw InvalidInputException("Catalog schema version %d is newer than supported version %d", applied, latest);
 	}
-	for (const auto &migration : SCHEMA_MIGRATIONS) {
-		if (migration.version <= applied) {
+	for (const auto &[version, path] : migrations) {
+		if (version <= applied) {
 			continue;
 		}
-		ExecuteMigrationSQL(connection, migration.sql);
-		ExecuteMigrationSQL(connection,
-		                    StringUtil::Format("INSERT INTO %s VALUES (%d)", name.ToString(), migration.version));
+		auto sql = connection.Query("SELECT content FROM read_text(?)", Value(path));
+		sql->ThrowIfError();
+		ExecuteMigrationSQL(connection, sql->Fetch()->GetValue(0, 0).GetValue<string>());
+		ExecuteMigrationSQL(connection, StringUtil::Format("INSERT INTO %s VALUES (%d)", name.ToString(), version));
 	}
 }
 
@@ -63,10 +75,14 @@ QualifiedName GetAgentRunsName(ClientContext &context, const char *name) {
 }
 
 void MigrateAgentRunsSchema(DatabaseInstance &database) {
+	auto directory = FileSystem::GetEnvVariable("DUCKDB_AGENT_RUNS_MIGRATIONS");
+	if (directory.empty()) {
+		directory = AGENT_RUNS_MIGRATION_DIRECTORY;
+	}
 	Connection connection(database);
 	connection.BeginTransaction();
 	// Connection destruction rolls back the entire batch on failure, including its version records.
-	ApplySchemaMigrations(connection);
+	ApplySchemaMigrations(connection, directory);
 	connection.Commit();
 }
 
