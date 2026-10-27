@@ -9,11 +9,13 @@
 namespace duckdb {
 namespace {
 
+constexpr const char *SCHEMA_FILE = "schema.sql";
+
 //! Read numbered SQL filenames in version order from the installed migration directory.
 map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &directory) {
 	map<int32_t, string> migrations;
 	fs.ListFiles(directory, [&](const string &filename, bool is_directory) {
-		if (is_directory || filename == "schema.sql" || fs.ExtractExtension(filename) != "sql") {
+		if (is_directory || filename == SCHEMA_FILE || fs.ExtractExtension(filename) != "sql") {
 			return;
 		}
 		auto version = Value(fs.ExtractBaseName(filename)).GetValue<int32_t>();
@@ -46,7 +48,7 @@ void ExecuteMigrationSQL(Connection &connection, const string &sql) {
 void ApplySchemaMigrations(Connection &connection, const string &directory) {
 	auto name = GetAgentRunsName(*connection.context, "schema_migrations");
 	if (!Catalog::GetEntry<TableCatalogEntry>(*connection.context, name, OnEntryNotFound::RETURN_NULL)) {
-		auto path = FileSystem::GetFileSystem(*connection.context).JoinPath(directory, "schema.sql");
+		auto path = FileSystem::GetFileSystem(*connection.context).JoinPath(directory, SCHEMA_FILE);
 		ExecuteMigrationSQL(connection, ReadMigrationSQL(connection, path));
 	}
 	auto result = connection.Query(StringUtil::Format("SELECT coalesce(max(version), 0) FROM %s", name.ToString()));
