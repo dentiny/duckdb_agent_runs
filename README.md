@@ -75,7 +75,12 @@ The call returns `job_id`, `job_name`, and `trials_ingested`. Inserts use the
 caller's transaction, including explicit `BEGIN`/`ROLLBACK`. Duplicate IDs,
 constraint violations, malformed metadata, or conversion failures fail the call
 and roll back its inserts. Existing records are never replaced. Lance datasets
-are external files and are not removed by a DuckDB transaction rollback.
+are external files and are not removed by a later explicit DuckDB transaction rollback.
+If a conversion fails during the call, the extension waits for all started tasks
+and removes datasets this call created. This cleanup is enabled by default; set
+`agent_runs_failure_cleanup = false` when the destination credentials lack delete
+permission. In that mode, a failed call may leave partial datasets for the caller
+to clean up.
 
 ## Tests
 

@@ -1,11 +1,14 @@
+#include "dataset_util.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/type_catalog_entry.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/sql_identifier.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/appender.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/settings.hpp"
@@ -14,6 +17,7 @@
 #include "run_ingest.hpp"
 #include "schema_migration.hpp"
 
+#include <exception>
 #include <string_view>
 
 namespace duckdb {
@@ -21,6 +25,7 @@ namespace {
 
 constexpr std::string_view JOBS_TABLE_NAME = "jobs";
 constexpr std::string_view TRIALS_TABLE_NAME = "trials";
+constexpr std::string_view FAILURE_CLEANUP_SETTING = "agent_runs_failure_cleanup";
 
 struct RunBindData : TableFunctionData {
 	RunOptions options;
@@ -145,6 +150,13 @@ string GetTrialDatasetURI(FileSystem &fs, const RunOptions &options, const RunRe
 	return fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString()));
 }
 
+//! Never clean a dataset that existed before this ingestion call.
+void RequireNewDataset(ClientContext &context, const string &uri) {
+	if (LanceDatasetExists(context, uri)) {
+		throw InvalidInputException("Dataset already exists: %s", uri);
+	}
+}
+
 //! Append metadata with the current context so the caller's COMMIT/ROLLBACK governs both tables.
 void InsertRunMetadata(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
 	auto &jobs = GetJobsTable(context);
@@ -174,16 +186,38 @@ void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options,
 		return;
 	}
 	auto &fs = FileSystem::GetFileSystem(context);
+	Value cleanup_value;
+	if (!context.TryGetCurrentSetting(Identifier(FAILURE_CLEANUP_SETTING), cleanup_value)) {
+		throw InternalException("Missing agent_runs_failure_cleanup setting");
+	}
+	const bool cleanup_enabled = cleanup_value.GetValue<bool>();
 	TaskExecutor executor(context);
 	vector<unique_ptr<BaseExecutorTask>> tasks;
+	vector<string> destinations;
 	tasks.reserve(metadata.trials.size());
+	destinations.reserve(metadata.trials.size());
 	for (const auto &trial : metadata.trials) {
 		auto destination = GetTrialDatasetURI(fs, options, trial);
-		tasks.emplace_back(make_uniq<ConvertTrialTask>(executor, *context.db, context.config, trial.trajectory_path,
-		                                               std::move(destination)));
+		if (cleanup_enabled) {
+			RequireNewDataset(context, destination);
+		}
+		tasks.emplace_back(
+		    make_uniq<ConvertTrialTask>(executor, *context.db, context.config, trial.trajectory_path, destination));
+		destinations.emplace_back(std::move(destination));
 	}
-	executor.ScheduleTasks(std::move(tasks));
-	executor.WorkOnTasks();
+	try {
+		executor.ScheduleTasks(std::move(tasks));
+		executor.WorkOnTasks();
+	} catch (...) {
+		auto conversion_error = std::current_exception();
+		executor.CancelAndDrain();
+		if (cleanup_enabled) {
+			for (const auto &uri : destinations) {
+				DeleteLanceDataset(context, uri);
+			}
+		}
+		std::rethrow_exception(conversion_error);
+	}
 }
 
 //! Read and append one job with its trials, returning one summary row.
@@ -212,6 +246,10 @@ void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &out
 } // namespace
 
 void RegisterRunIngest(ExtensionLoader &loader) {
+	DBConfig::GetConfig(loader.GetDatabaseInstance())
+	    .AddExtensionOption(Identifier(FAILURE_CLEANUP_SETTING),
+	                        "Remove newly written trial datasets if ingestion fails", LogicalType::BOOLEAN,
+	                        Value::BOOLEAN(true));
 	TableFunction function("ingest_agent_run", {LogicalType::VARCHAR}, IngestRun, BindRun, InitRun);
 	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
 		options.Add("format", LogicalType::VARCHAR);
