@@ -1,7 +1,11 @@
 # Tests
 
 Run `make release` and `make test`. All tests are native DuckDB SQLLogicTests.
-Inputs in `testdata/atif/` are static fixtures owned by this repository.
+Inputs in `testdata/atif/` and `testdata/harbor/` are static fixtures owned by
+this repository. Metadata tests initialize the ml-infra-derived `agent_runs` schema with
+`LOAD agent_runs` and cover nested types, precise VARIANT values,
+caller rollback, constraint rollback, and local metadata sources. Deliberately
+invalid trajectory files verify that metadata ingestion never reads ATIF.
 
 The conversion test calls only `import_agent_trajectory` to write datasets.
 It then reads them with the independent `lance` extension and compares typed
@@ -15,16 +19,3 @@ instead of skipping tests.
 Writing and verification use separate databases because the two extensions
 register the same COPY format. Neither `read_atif` nor the dependency's COPY API
 is used by the test to create datasets.
-
-The optional S3 test requires `httpfs` and these environment variables:
-
-```sh
-export AGENT_RUNS_S3_ENDPOINT=127.0.0.1:9000
-export AGENT_RUNS_S3_BUCKET=agent-runs-test
-export AGENT_RUNS_S3_KEY_ID=agent_runs_test
-export AGENT_RUNS_S3_SECRET=agent_runs_test_password
-make test
-```
-
-Use a disposable HTTP/path-style S3 service and an existing bucket. Tests write
-under a random prefix.

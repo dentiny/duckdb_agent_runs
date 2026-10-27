@@ -1,0 +1,132 @@
+# name: test/sql/job_trial_ingestion.test
+# description: Ingest native Harbor metadata into the typed jobs/trials tables
+# group: [sql]
+
+require agent_runs
+
+# Binding/preparing the call must not insert any rows or parse the source.
+statement ok
+PREPARE ingest AS SELECT * FROM ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
+
+statement ok
+BEGIN;
+
+query TTI
+CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+00000000-0000-0000-0000-000000000001	completed-job	1
+
+statement ok
+ROLLBACK;
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
+
+query TTI
+CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+00000000-0000-0000-0000-000000000001	completed-job	1
+
+query TTIII
+SELECT job_name, owner_email, config.n_attempts, result.stats.n_completed_trials,
+       config.metadata['precise']::UBIGINT = 1152921504606846977 FROM agent_runs.jobs;
+----
+completed-job	agent@example.com	1	1	true
+
+query T
+SELECT to_json(config.metadata['mixed']) FROM agent_runs.jobs;
+----
+[1,"two",true,null]
+
+query TTI
+SELECT trial_name, result.task_name, result.verifier_result.rewards['precise']::UBIGINT = 1152921504606846977
+FROM agent_runs.trials;
+----
+task__abc	task-a	true
+
+query II
+SELECT job_id = (SELECT job_id FROM agent_runs.jobs),
+       ends_with(dataset_uri, '/00000000-0000-0000-0000-000000000002.lance') FROM agent_runs.trials;
+----
+true	true
+
+# Only metadata is inserted: the invalid ATIF fixture is ignored and no dataset is written.
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/datasets/**/*');
+----
+0
+
+statement error
+CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+Duplicate key
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+1	1
+
+# A trial constraint failure also rolls back the job inserted earlier in the call.
+statement error
+CALL ingest_agent_run('testdata/harbor/invalid-trial', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+CHECK constraint failed
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+1	1
+
+# Changing a caller's catalog/schema must not redirect metadata writes.
+statement ok
+ATTACH ':memory:' AS unrelated;
+
+statement ok
+CREATE SCHEMA unrelated.agent_runs;
+
+statement ok
+CREATE TABLE unrelated.agent_runs.jobs (sentinel INTEGER);
+
+statement ok
+CREATE TABLE unrelated.agent_runs.trials (sentinel INTEGER);
+
+statement ok diverted
+USE unrelated.agent_runs;
+
+query TTI diverted
+CALL ingest_agent_run('testdata/harbor/container-job', owner_email := 'agent@example.com',
+    trajectory_destination := 'unused/preconverted/job-3');
+----
+00000000-0000-0000-0000-000000000003	container-job	1
+
+query T
+SELECT dataset_uri FROM agent_runs.trials WHERE trial_id = '00000000-0000-0000-0000-000000000004';
+----
+unused/preconverted/job-3/00000000-0000-0000-0000-000000000004.lance
+
+query TTI diverted
+CALL ingest_agent_run('testdata/harbor/empty-job', owner_email := 'agent@example.com');
+----
+00000000-0000-0000-0000-000000000007	empty-job	0
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+3	2
+
+query II
+SELECT (SELECT count(*) FROM unrelated.agent_runs.jobs), (SELECT count(*) FROM unrelated.agent_runs.trials);
+----
+0	0
