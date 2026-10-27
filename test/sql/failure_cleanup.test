@@ -14,7 +14,7 @@ statement ok
 SET threads = 1;
 
 statement error
-CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/partial-failure',
     trajectory_destination := '{TEST_DIR}/cleaned');
 ----
 entity not found
@@ -33,7 +33,7 @@ statement ok
 SET agent_runs_failure_cleanup = false;
 
 statement error
-CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/partial-failure',
     trajectory_destination := '{TEST_DIR}/kept');
 ----
 entity not found
@@ -48,7 +48,7 @@ SET agent_runs_failure_cleanup = true;
 
 # An existing dataset must not be deleted by a later failed call.
 statement error
-CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/partial-failure',
     trajectory_destination := '{TEST_DIR}/kept');
 ----
 Dataset already exists

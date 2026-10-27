@@ -5,7 +5,7 @@
 require agent_runs
 
 query TTI
-CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/datasets');
 ----
 00000000-0000-0000-0000-000000000001	completed-job	1

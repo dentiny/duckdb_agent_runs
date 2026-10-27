@@ -15,7 +15,6 @@ struct RunOptions {
 	//! Job directory or object-storage prefix containing Harbor config/result files.
 	string source;
 	RunFormat format = RunFormat::HARBOR;
-	string owner_email;
 	//! Per-job root where each trial's ATIF trajectory is converted to a Lance dataset.
 	string trajectory_destination;
 };

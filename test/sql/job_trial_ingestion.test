@@ -6,7 +6,7 @@ require agent_runs
 
 # Binding/preparing the call must not insert any rows or parse the source.
 statement ok
-PREPARE ingest AS SELECT * FROM ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+PREPARE ingest AS SELECT * FROM ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/datasets');
 
 query II
@@ -18,7 +18,7 @@ statement ok
 BEGIN;
 
 query TTI
-CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/rolled-back');
 ----
 00000000-0000-0000-0000-000000000001	completed-job	1
@@ -32,16 +32,26 @@ SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.
 0	0
 
 query TTI
-CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/datasets');
 ----
 00000000-0000-0000-0000-000000000001	completed-job	1
 
-query TTIII
-SELECT job_name, owner_email, config.n_attempts, result.stats.n_completed_trials,
+query TIII
+SELECT job_name, config.n_attempts, result.stats.n_completed_trials,
        config.metadata['precise']::UBIGINT = 1152921504606846977 FROM agent_runs.jobs;
 ----
-completed-job	agent@example.com	1	1	true
+completed-job	1	1	true
+
+query T
+SELECT job_name FROM agent_runs.job_summaries('agent_runs.jobs');
+----
+completed-job
+
+query T
+SELECT trial_name FROM agent_runs.trial_summaries('agent_runs.trials');
+----
+task__abc
 
 query T
 SELECT to_json(config.metadata['mixed']) FROM agent_runs.jobs;
@@ -61,7 +71,7 @@ SELECT job_id = (SELECT job_id FROM agent_runs.jobs),
 true	true
 
 statement error
-CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/datasets');
 ----
 Duplicate key
@@ -73,7 +83,7 @@ SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.
 
 # A trial constraint failure also rolls back the job inserted earlier in the call.
 statement error
-CALL ingest_agent_run('testdata/harbor/invalid-trial', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/invalid-trial',
     trajectory_destination := '{TEST_DIR}/datasets');
 ----
 CHECK constraint failed
@@ -100,7 +110,7 @@ statement ok diverted
 USE unrelated.agent_runs;
 
 query TTI diverted
-CALL ingest_agent_run('testdata/harbor/container-job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/container-job',
     trajectory_destination := '{TEST_DIR}/container-datasets');
 ----
 00000000-0000-0000-0000-000000000003	container-job	1
@@ -112,7 +122,7 @@ FROM agent_runs.trials WHERE trial_id = '00000000-0000-0000-0000-000000000004';
 true
 
 query TTI diverted
-CALL ingest_agent_run('testdata/harbor/empty-job', owner_email := 'agent@example.com');
+CALL ingest_agent_run('testdata/harbor/empty-job');
 ----
 00000000-0000-0000-0000-000000000007	empty-job	0
 
