@@ -91,9 +91,8 @@ SELECT version FROM agent_runs.schema_migrations ORDER BY version;
 
 The tables and migration history persist together in a file-backed DuckDB
 database; Lance datasets remain at their external destinations. Migration SQL
-files must be available when the extension loads. If they are outside its
-configured install directory, set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their
-directory before starting DuckDB. A failed migration rolls back as a unit.
+is bundled in the extension binary, so `INSTALL` and `LOAD` need no companion
+files. A failed migration rolls back as a unit.
 See [schema design and evolution](schema/README.md) for the table layout and
 migration policy.
 
