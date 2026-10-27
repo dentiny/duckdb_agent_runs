@@ -83,9 +83,9 @@ TableCatalogEntry &GetMetadataTable(ClientContext &context, std::string_view nam
 
 //! Require the pinned job table layout before appending.
 TableCatalogEntry &GetJobsTable(ClientContext &context) {
-	return GetMetadataTable(context, JOBS_TABLE_NAME, {"job_id", "job_name", "owner_email", "config", "result"},
-	                        {LogicalType::UUID, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                         GetMetadataType(context, "job_config"), GetMetadataType(context, "job_result")});
+	return GetMetadataTable(context, JOBS_TABLE_NAME, {"job_id", "job_name", "config", "result"},
+	                        {LogicalType::UUID, LogicalType::VARCHAR, GetMetadataType(context, "job_config"),
+	                         GetMetadataType(context, "job_result")});
 }
 
 //! Require the pinned trial table layout before appending.
@@ -119,16 +119,11 @@ unique_ptr<FunctionData> BindRun(ClientContext &context, TableFunctionBindInput 
 	data->options.source = GetStringArgument(input.inputs[0], "job_directory");
 	for (auto &parameter : input.named_parameters) {
 		std::string_view name = parameter.first.GetIdentifierName();
-		if (name == "owner_email") {
-			data->options.owner_email = GetStringArgument(parameter.second, "owner_email");
-		} else if (name == "trajectory_destination") {
+		if (name == "trajectory_destination") {
 			data->options.trajectory_destination = GetStringArgument(parameter.second, "trajectory_destination");
 		} else if (name == "format") {
 			data->options.format = ParseRunFormat(GetStringArgument(parameter.second, "format"));
 		}
-	}
-	if (data->options.owner_email.empty()) {
-		throw InvalidInputException("owner_email is required");
 	}
 	auto &jobs = GetJobsTable(context);
 	GetTrialsTable(context);
@@ -164,9 +159,8 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 	auto &jobs = GetJobsTable(context);
 	auto job_types = jobs.GetTypes();
 	InternalAppender job_appender(context, jobs);
-	job_appender.AppendRow(metadata.job.id, Value(metadata.job.name), Value(options.owner_email),
-	                       metadata.job.config.CastAs(context, job_types[3]),
-	                       metadata.job.result.CastAs(context, job_types[4]));
+	job_appender.AppendRow(metadata.job.id, Value(metadata.job.name), metadata.job.config.CastAs(context, job_types[2]),
+	                       metadata.job.result.CastAs(context, job_types[3]));
 	job_appender.Close();
 
 	auto &trials = GetTrialsTable(context);
@@ -255,7 +249,6 @@ void RegisterRunIngest(ExtensionLoader &loader) {
 	TableFunction function("ingest_agent_run", {LogicalType::VARCHAR}, IngestRun, BindRun, InitRun);
 	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
 		options.Add("format", LogicalType::VARCHAR);
-		options.Add("owner_email", LogicalType::VARCHAR);
 		options.Add("trajectory_destination", LogicalType::VARCHAR);
 	});
 	loader.RegisterFunction(function);

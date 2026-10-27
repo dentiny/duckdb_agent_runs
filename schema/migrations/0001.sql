@@ -383,7 +383,6 @@ CREATE TYPE agent_runs.trial_result AS STRUCT (
 CREATE TABLE agent_runs.jobs (
     job_id       UUID PRIMARY KEY,
     job_name     VARCHAR NOT NULL UNIQUE CHECK (regexp_matches(job_name, '\S')),
-    owner_email  VARCHAR NOT NULL CHECK (regexp_matches(owner_email, '\S')),
     config       agent_runs.job_config NOT NULL,
     result       agent_runs.job_result NOT NULL,
     CHECK (
@@ -455,7 +454,6 @@ CREATE MACRO agent_runs.trial_agent_name(config, result) AS
          THEN coalesce(nullif(config.agent.name, ''), config.agent.import_path)
          ELSE result.agent_info.name END;
 
-CREATE INDEX jobs_owner_email_idx ON agent_runs.jobs (owner_email);
 CREATE INDEX jobs_started_at_idx ON agent_runs.jobs ((result.started_at));
 
 CREATE INDEX trials_task_name_idx ON agent_runs.trials ((result.task_name));
@@ -467,7 +465,7 @@ CREATE INDEX trials_model_provider_idx ON agent_runs.trials ((result.agent_info.
 
 CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
 SELECT
-    job_id, job_name, owner_email,
+    job_id, job_name,
     result.started_at AS started_at,
     result.finished_at AS finished_at,
     result.n_total_trials AS n_total_trials,
@@ -511,7 +509,7 @@ WITH contexts AS (
     FROM contexts
 )
 SELECT
-    t.trial_id, t.job_id, j.job_name, j.owner_email, t.trial_name,
+    t.trial_id, t.job_id, j.job_name, t.trial_name,
     t.result.task_name AS task_name,
     t.result.source AS source,
     agent_runs.trial_agent_name(t.config, t.result) AS agent_name,

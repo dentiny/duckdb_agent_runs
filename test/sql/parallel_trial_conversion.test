@@ -8,7 +8,7 @@ statement ok
 SET threads = 2;
 
 statement error
-CALL ingest_agent_run('testdata/harbor/missing-trajectory', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/missing-trajectory',
     trajectory_destination := '{TEST_DIR}/missing');
 ----
 entity not found
@@ -19,7 +19,7 @@ SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.
 0	0
 
 query TTI
-CALL ingest_agent_run('testdata/harbor/parallel-job', owner_email := 'agent@example.com',
+CALL ingest_agent_run('testdata/harbor/parallel-job',
     trajectory_destination := '{TEST_DIR}/datasets');
 ----
 00000000-0000-0000-0000-000000000009	parallel-job	2

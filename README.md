@@ -42,7 +42,6 @@ LOAD agent_runs;
 
 CALL ingest_agent_run(
     '/data/jobs/my-job',
-    owner_email := 'agent@example.com',
     trajectory_destination := '/data/datasets/my-job'
 );
 ```
@@ -53,7 +52,7 @@ trial's Lance dataset to `<trajectory_destination>/<trial UUID>.lance` and saves
 parallel. You can query the persisted metadata immediately:
 
 ```sql
-SELECT job_id, job_name, owner_email FROM agent_runs.jobs;
+SELECT job_id, job_name FROM agent_runs.jobs;
 SELECT trial_id, trial_name, dataset_uri FROM agent_runs.trials;
 SELECT job_name, config.n_attempts, result.stats.n_completed_trials
 FROM agent_runs.jobs;
@@ -64,9 +63,9 @@ the last query.
 Use a Lance reader to query the datasets at those URIs; `agent_runs` writes
 Lance datasets but does not provide a Lance dataset reader.
 
-`owner_email` is required. `trajectory_destination` is required when the job
-has trials; a job without trials can omit it. `format := 'harbor'` is optional
-and is the only supported format today. Job and trial UUIDs come from the
+`trajectory_destination` is required when the job has trials; a job without
+trials can omit it. `format := 'harbor'` is optional and is the only supported
+format today. Job and trial UUIDs come from the
 Harbor result files. Existing rows are not replaced, so importing the same
 job again fails on its unique ID. The extension reads metadata and trajectories;
 it does not copy other job files, logs, or artifacts.

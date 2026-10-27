@@ -1,7 +1,7 @@
 # Catalog schema and evolution
 
 `migrations/schema.sql` creates the `agent_runs` schema and persistent
-`schema_migrations(version, sql)` table. `migrations/0001.sql` adapts the existing Harbor catalog schema from
+`schema_migrations(version, sql)` table. `migrations/0001.sql` adapts the Harbor catalog schema from
 `ml-infra` commit `d7af6649c51790c78afc1ed4d5af990a1ec634b7`,
 `trajectory_data/schema/0001.sql`, qualifying objects and their cross-references
 with `agent_runs`. The migration runner follows that repository's
@@ -33,8 +33,10 @@ newer recorded version fails extension initialization. Concurrent migration
 attempts can conflict; retry after the other caller finishes. The runner never rewrites or drops existing tables to
 force initialization to succeed.
 
-The job/trial table definitions match ml-infra; this extension
-isolates them in `agent_runs` rather than the service's `main` schema. The migration ledger additionally stores the executed SQL. Existing
+The job/trial table definitions adapt ml-infra's schema, omitting its
+service-specific owner email. This extension isolates the tables in
+`agent_runs` rather than the service's `main` schema. The migration ledger
+additionally stores the executed SQL. Existing
 `main.jobs`, `main.trials` and `main.schema_migrations` are not adopted, moved or
 modified. Importing such a catalog requires an explicit data/schema migration;
 a version recorded in another schema must not cause extension migrations to be
@@ -42,7 +44,7 @@ skipped.
 
 ## Table design
 
-- `agent_runs.jobs` stores one native job UUID, unique job name, owner email, typed
+- `agent_runs.jobs` stores one native job UUID, unique job name, typed
   `job_config` and `job_result` STRUCTs.
 - `agent_runs.trials` stores native trial UUIDs, their parent job UUID (foreign
   key), trial name, typed `trial_config` and `trial_result`, and the exact trajectory
@@ -52,7 +54,7 @@ skipped.
   mixed JSON types and integer precision.
 - CHECK constraints enforce required root fields and basic timestamp/count
   invariants. This projection is not a replacement for Harbor model validation.
-- Indexes support owner, time, task, agent, model, source and provider lookups.
+- Indexes support time, task, agent, model, source and provider lookups.
   Summary macros provide query projections without duplicating stored data.
 - These are job/trial metadata tables. Trajectory steps and media remain in the
   Lance datasets referenced by `dataset_uri`.
@@ -66,7 +68,9 @@ not silently cast an unrelated format into Harbor's STRUCTs.
 Add the next unused four-digit SQL filename, for example `0002.sql`. Qualify
 metadata objects, custom type names and cross-references with `agent_runs`; do
 not depend on the caller's search path or persist unqualified macro references.
-Applied files are immutable. The extension reads filenames and SQL at load time,
+Applied files are immutable after deployment. This pre-release baseline changed
+while there was no production data; recreate any development database initialized
+with the earlier `0001.sql`. The extension reads filenames and SQL at load time,
 orders migrations by their numeric filename, and applies versions newer than the
 database's recorded maximum. Adding a SQL migration does not require generated
 C++ or a rebuild.
