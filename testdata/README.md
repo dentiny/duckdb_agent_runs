@@ -17,6 +17,7 @@ media bytes against the original local files.
 `ml-infra`'s catalog API fixtures at commit
 `d7af6649c51790c78afc1ed4d5af990a1ec634b7`. Root/trial result files include native
 UUIDs and trial names. Config/result payloads exercise typed nested structures
-and VARIANT values larger than 2^53. The deliberately invalid trajectory files
-must remain unread by metadata ingestion. The invalid-trial fixture exercises
-transaction rollback after the job append; the empty job has no trials.
+and VARIANT values larger than 2^53. The job, container-job, and parallel-job
+fixtures contain valid ATIF trajectories; parallel-job has two trials with
+distinct content. The missing-trajectory and invalid-trial fixtures exercise
+failure rollback, while the empty job has no trials.

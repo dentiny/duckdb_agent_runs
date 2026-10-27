@@ -1,0 +1,21 @@
+{
+  "id": "00000000-0000-0000-0000-000000000012",
+  "trial_name": "task__abc",
+  "task_name": "task-a",
+  "trial_uri": "trial://a",
+  "task_id": {
+    "path": "task-a"
+  },
+  "task_checksum": "checksum",
+  "agent_info": {
+    "name": "agent",
+    "version": "1"
+  },
+  "teardown_incomplete": false,
+  "verifier_result": {
+    "rewards": {
+      "reward": 1,
+      "precise": 1152921504606846977
+    }
+  }
+}

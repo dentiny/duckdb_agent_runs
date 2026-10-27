@@ -57,7 +57,8 @@ CALL ingest_agent_run(
 ```
 
 The call reads the job's `config.json` and `result.json`, then the same metadata
-pair from each direct trial directory or `trials/<trial>/` directory. Sources
+pair and `agent/trajectory.json` from each direct trial directory or
+`trials/<trial>/` directory. Sources
 can also be S3 prefixes when `httpfs` and the appropriate secret are available.
 The `agent_runs.jobs` and `agent_runs.trials` tables preserve nested typed
 config/result STRUCTs and dynamic VARIANT fields. Their namespace is fixed in
@@ -65,15 +66,16 @@ the database instance's default catalog; the caller's current catalog and search
 path do not redirect ingestion. See `schema/README.md` for the schema design.
 
 Job and trial UUIDs come from Harbor's result documents. `owner_email` is required.
-For jobs with trials, `trajectory_destination` is required and populates each
-`agent_runs.trials.dataset_uri` as `<trajectory_destination>/<trial UUID>.lance`. It refers
-to datasets converted separately: ingestion does not read trajectories, convert
-ATIF, write datasets, or check the destination. Jobs without trials may omit it.
+For jobs with trials, `trajectory_destination` is required. The call converts each
+trial's ATIF trajectory to `<trajectory_destination>/<trial UUID>.lance` in
+parallel using DuckDB's task executor, then records that path in
+`agent_runs.trials.dataset_uri`. Jobs without trials may omit it.
 
 The call returns `job_id`, `job_name`, and `trials_ingested`. Inserts use the
 caller's transaction, including explicit `BEGIN`/`ROLLBACK`. Duplicate IDs,
-constraint violations, or malformed metadata fail the call and roll back its
-inserts. Existing records are never replaced.
+constraint violations, malformed metadata, or conversion failures fail the call
+and roll back its inserts. Existing records are never replaced. Lance datasets
+are external files and are not removed by a DuckDB transaction rollback.
 
 ## Tests
 

@@ -16,7 +16,7 @@ struct RunOptions {
 	string source;
 	RunFormat format = RunFormat::HARBOR;
 	string owner_email;
-	//! Exact per-job root of already converted datasets; used only to populate trials.dataset_uri.
+	//! Per-job root where each trial's ATIF trajectory is converted to a Lance dataset.
 	string trajectory_destination;
 };
 
@@ -25,6 +25,8 @@ struct RunRecord {
 	string name;
 	Value config;
 	Value result;
+	//! Harbor trial trajectory path; empty for the job record.
+	string trajectory_path;
 };
 
 struct RunMetadata {
@@ -32,8 +34,8 @@ struct RunMetadata {
 	vector<RunRecord> trials;
 };
 
-//! Read only the job/trial config and result files, retaining nested values as VARIANT.
-//! Trial discovery supports direct directories and the trials/ container; no artifacts are copied.
+//! Read job/trial metadata and locate each trial's ATIF trajectory.
+//! Trial discovery supports direct directories and the trials/ container.
 RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options);
 //! Register ingestion into the existing typed jobs/trials tables in the caller's transaction.
 void RegisterRunIngest(ExtensionLoader &loader);

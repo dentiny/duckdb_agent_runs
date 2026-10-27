@@ -19,7 +19,7 @@ BEGIN;
 
 query TTI
 CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
-    trajectory_destination := '{TEST_DIR}/datasets');
+    trajectory_destination := '{TEST_DIR}/rolled-back');
 ----
 00000000-0000-0000-0000-000000000001	completed-job	1
 
@@ -59,12 +59,6 @@ SELECT job_id = (SELECT job_id FROM agent_runs.jobs),
        ends_with(dataset_uri, '/00000000-0000-0000-0000-000000000002.lance') FROM agent_runs.trials;
 ----
 true	true
-
-# Only metadata is inserted: the invalid ATIF fixture is ignored and no dataset is written.
-query I
-SELECT count(*) FROM glob('{TEST_DIR}/datasets/**/*');
-----
-0
 
 statement error
 CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
@@ -107,14 +101,15 @@ USE unrelated.agent_runs;
 
 query TTI diverted
 CALL ingest_agent_run('testdata/harbor/container-job', owner_email := 'agent@example.com',
-    trajectory_destination := 'unused/preconverted/job-3');
+    trajectory_destination := '{TEST_DIR}/container-datasets');
 ----
 00000000-0000-0000-0000-000000000003	container-job	1
 
 query T
-SELECT dataset_uri FROM agent_runs.trials WHERE trial_id = '00000000-0000-0000-0000-000000000004';
+SELECT ends_with(dataset_uri, '/00000000-0000-0000-0000-000000000004.lance')
+FROM agent_runs.trials WHERE trial_id = '00000000-0000-0000-0000-000000000004';
 ----
-unused/preconverted/job-3/00000000-0000-0000-0000-000000000004.lance
+true
 
 query TTI diverted
 CALL ingest_agent_run('testdata/harbor/empty-job', owner_email := 'agent@example.com');

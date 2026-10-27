@@ -2,11 +2,14 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/catalog/catalog_entry/type_catalog_entry.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/appender.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/settings.hpp"
+#include "duckdb/parallel/task_executor.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "run_ingest.hpp"
 #include "schema_migration.hpp"
@@ -25,6 +28,35 @@ struct RunBindData : TableFunctionData {
 
 struct RunState : GlobalTableFunctionState {
 	bool done = false;
+};
+
+//! Execute one trial conversion on its own connection using DuckDB's task scheduler.
+class ConvertTrialTask : public BaseExecutorTask {
+public:
+	ConvertTrialTask(TaskExecutor &executor, DatabaseInstance &db, const ClientConfig &config, string source,
+	                 string destination)
+	    : BaseExecutorTask(executor), db(db), config(config), source(std::move(source)),
+	      destination(std::move(destination)) {
+	}
+
+	void ExecuteTask() override {
+		Connection connection(db);
+		connection.context->config = config;
+		auto sql = StringUtil::Format("CALL import_agent_trajectory(%s, trajectory_destination := %s)",
+		                              SQLString::ToString(source), SQLString::ToString(destination));
+		auto result = connection.Query(sql);
+		result->ThrowIfError();
+	}
+
+	string TaskType() const override {
+		return "ConvertTrialTask";
+	}
+
+private:
+	DatabaseInstance &db;
+	const ClientConfig &config;
+	string source;
+	string destination;
 };
 
 //! Look up the existing schema type, including its nested config/result fields.
@@ -108,6 +140,11 @@ unique_ptr<GlobalTableFunctionState> InitRun(ClientContext &, TableFunctionInitI
 	return make_uniq<RunState>();
 }
 
+//! Keep the stored URI and the conversion destination identical.
+string GetTrialDatasetURI(FileSystem &fs, const RunOptions &options, const RunRecord &trial) {
+	return fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString()));
+}
+
 //! Append metadata with the current context so the caller's COMMIT/ROLLBACK governs both tables.
 void InsertRunMetadata(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
 	auto &jobs = GetJobsTable(context);
@@ -123,13 +160,30 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 	InternalAppender trial_appender(context, trials);
 	auto &fs = FileSystem::GetFileSystem(context);
 	for (const auto &trial : metadata.trials) {
-		auto dataset_uri =
-		    fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString()));
+		auto dataset_uri = GetTrialDatasetURI(fs, options, trial);
 		trial_appender.AppendRow(trial.id, metadata.job.id, Value(trial.name),
 		                         trial.config.CastAs(context, trial_types[3]),
 		                         trial.result.CastAs(context, trial_types[4]), Value(dataset_uri));
 	}
 	trial_appender.Close();
+}
+
+//! Convert independent trial trajectories concurrently, then surface any task error to the caller.
+void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
+	if (metadata.trials.empty()) {
+		return;
+	}
+	auto &fs = FileSystem::GetFileSystem(context);
+	TaskExecutor executor(context);
+	vector<unique_ptr<BaseExecutorTask>> tasks;
+	tasks.reserve(metadata.trials.size());
+	for (const auto &trial : metadata.trials) {
+		auto destination = GetTrialDatasetURI(fs, options, trial);
+		tasks.emplace_back(make_uniq<ConvertTrialTask>(executor, *context.db, context.config, trial.trajectory_path,
+		                                               std::move(destination)));
+	}
+	executor.ScheduleTasks(std::move(tasks));
+	executor.WorkOnTasks();
 }
 
 //! Read and append one job with its trials, returning one summary row.
@@ -147,7 +201,7 @@ void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &out
 		throw InvalidInputException("trajectory_destination is required to populate trials.dataset_uri");
 	}
 	InsertRunMetadata(context, options, metadata);
-	// TODO: Convert each trial's ATIF trajectory to its Lance dataset in parallel in a follow-up PR.
+	ConvertTrialTrajectories(context, options, metadata);
 	output.data[0].Append(metadata.job.id);
 	output.data[1].Append(Value(metadata.job.name));
 	output.data[2].Append(Value::UBIGINT(metadata.trials.size()));
