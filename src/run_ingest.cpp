@@ -47,7 +47,9 @@ public:
 	void ExecuteTask() override {
 		Connection connection(db);
 		connection.context->config = config;
-		auto sql = StringUtil::Format("CALL import_agent_trajectory(%s, trajectory_destination := %s)",
+		auto sql = StringUtil::Format("COPY (SELECT * FROM read_atif(%s)) TO %s "
+		                              "(FORMAT LANCE, STORAGE_VERSION '2.2', COLUMN_COMPRESSION {"
+		                              "'steps.message.text': 'lz4', 'steps.observation.results.content.text': 'lz4'})",
 		                              SQLString::ToString(source), SQLString::ToString(destination));
 		auto result = connection.Query(sql);
 		result->ThrowIfError();
