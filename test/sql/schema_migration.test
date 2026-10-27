@@ -1,0 +1,182 @@
+# name: test/sql/schema_migration.test
+# description: Initialize and version the typed catalog atomically
+# group: [sql]
+
+require agent_runs
+
+# Loading and preparing are read-only.
+statement ok
+PREPARE migrate AS SELECT * FROM migrate_agent_runs();
+
+query I
+SELECT count(*) FROM duckdb_tables() WHERE table_name = 'schema_migrations';
+----
+0
+
+# A late DDL failure must roll back both earlier types and the version table.
+statement ok
+CREATE TABLE jobs (sentinel INTEGER);
+
+statement ok
+INSERT INTO jobs VALUES (42);
+
+statement error
+CALL migrate_agent_runs();
+----
+already exists
+
+query II
+SELECT (SELECT count(*) FROM duckdb_types() WHERE type_name = 'job_config'),
+       (SELECT count(*) FROM duckdb_tables() WHERE table_name = 'schema_migrations');
+----
+0	0
+
+query I
+SELECT sentinel FROM jobs;
+----
+42
+
+statement ok
+DROP TABLE jobs;
+
+# Schema management owns its transaction and cannot commit a caller's transaction.
+statement ok
+BEGIN;
+
+statement error
+CALL migrate_agent_runs();
+----
+outside an explicit transaction
+
+statement ok
+ROLLBACK;
+
+query I
+EXECUTE migrate;
+----
+1
+
+query I
+SELECT version FROM schema_migrations;
+----
+1
+
+query T
+SELECT column_name FROM duckdb_columns() WHERE table_name = 'jobs' ORDER BY column_index;
+----
+job_id
+job_name
+owner_email
+config
+result
+
+query T
+SELECT column_name FROM duckdb_columns() WHERE table_name = 'trials' ORDER BY column_index;
+----
+trial_id
+job_id
+trial_name
+config
+result
+dataset_uri
+
+query I
+SELECT count(*) FROM duckdb_constraints() WHERE table_name = 'trials' AND constraint_type = 'FOREIGN KEY';
+----
+1
+
+statement ok
+CREATE TABLE retained_data AS SELECT 42 AS value;
+
+query I
+CALL migrate_agent_runs();
+----
+1
+
+query II
+SELECT (SELECT count(*) FROM schema_migrations), (SELECT value FROM retained_data);
+----
+1	42
+
+# A newer catalog must not be downgraded or have its data rewritten.
+statement ok
+INSERT INTO schema_migrations VALUES (2);
+
+statement error
+CALL migrate_agent_runs();
+----
+Catalog schema version 2 is newer than supported version 1
+
+query II
+SELECT (SELECT max(version) FROM schema_migrations), (SELECT value FROM retained_data);
+----
+2	42
+
+# The version and typed catalog survive a file-backed database reopen.
+load {TEST_DIR}/catalog.db
+
+query I
+CALL migrate_agent_runs();
+----
+1
+
+statement ok
+INSERT INTO jobs VALUES (
+    '00000000-0000-0000-0000-000000000001', 'existing-job', 'owner@example.com',
+    {'jobs_dir': '/jobs', 'n_attempts': 1, 'install_only': false, 'timeout_multiplier': 1.0,
+     'debug': false, 'n_concurrent_trials': 1, 'quiet': false,
+     'retry': {'max_retries': 0}, 'environment': {'type': 'docker'}, 'verifier': {'disable': false},
+     'metrics': [], 'agents': [], 'datasets': [], 'tasks': [], 'artifacts': [], 'metadata': map(),
+     'extra_instruction_paths': [], 'source_jobs': []}::job_config,
+    {'started_at': '2026-01-01 00:00:00+00', 'finished_at': '2026-01-01 00:01:00+00',
+     'n_total_trials': 1, 'stats': {'n_completed_trials': 1}}::job_result
+);
+
+statement ok
+INSERT INTO trials VALUES (
+    '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'existing-trial',
+    {'task': {'path': '/tasks/example'}, 'trials_dir': '/jobs/example', 'install_only': false,
+     'timeout_multiplier': 1.0, 'agent': {'name': 'example'}, 'environment': {'type': 'docker'},
+     'verifier': {'disable': false}, 'artifacts': [], 'extra_instruction_paths': []}::trial_config,
+    {'task_name': 'example', 'trial_uri': '/jobs/example/trial', 'task_id': 42::VARIANT,
+     'task_checksum': 'checksum', 'agent_info': {'name': 'example', 'version': '1'},
+     'teardown_incomplete': false}::trial_result,
+    's3://bucket/trajectories/example.lance'
+);
+
+statement ok
+CREATE TABLE retained_data AS SELECT 7 AS value;
+
+restart
+
+query I
+CALL migrate_agent_runs();
+----
+1
+
+query II
+SELECT (SELECT version FROM schema_migrations), (SELECT value FROM retained_data);
+----
+1	7
+
+query I
+SELECT count(*) FROM duckdb_columns() WHERE table_name = 'jobs' AND column_name = 'config'
+    AND data_type LIKE 'STRUCT(%';
+----
+1
+
+query TTI
+SELECT job_name, owner_email, config.n_attempts FROM jobs;
+----
+existing-job	owner@example.com	1
+
+query TTTI
+SELECT trial_name, result.task_name, dataset_uri, result.task_id::INTEGER FROM trials;
+----
+existing-trial	example	s3://bucket/trajectories/example.lance	42
+
+statement error
+INSERT INTO trials SELECT '00000000-0000-0000-0000-000000000003',
+    '00000000-0000-0000-0000-000000000099', trial_name, config, result, dataset_uri FROM trials;
+----
+foreign key

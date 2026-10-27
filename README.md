@@ -54,3 +54,16 @@ is no Python integration test runner. Optional S3 tests use the variables listed
 in `test/README.md`.
 
 Use `make format-all` to format C++, SQL tests, and CMake files.
+
+## Catalog schema
+
+Initialize or upgrade the job/trial metadata catalog explicitly:
+
+```sql
+CALL migrate_agent_runs();
+```
+
+The call returns the current schema version. It applies pending numbered
+migrations atomically and preserves existing rows. Run it outside an explicit
+transaction before ingestion. See [schema design and evolution](schema/README.md)
+for the typed tables, ml-infra compatibility and upgrade policy.

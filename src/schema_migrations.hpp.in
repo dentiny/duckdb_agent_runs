@@ -1,0 +1,17 @@
+#pragma once
+
+namespace duckdb {
+namespace {
+
+struct SchemaMigration {
+	int version;
+	const char *sql;
+};
+
+constexpr int LATEST_SCHEMA_VERSION = @AGENT_RUNS_SCHEMA_VERSION@;
+
+constexpr SchemaMigration SCHEMA_MIGRATIONS[] = {
+@AGENT_RUNS_MIGRATIONS@};
+
+} // namespace
+} // namespace duckdb
