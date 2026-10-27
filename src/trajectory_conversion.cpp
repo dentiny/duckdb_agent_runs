@@ -12,16 +12,12 @@ namespace {
 
 enum class TextCompression : uint8_t { LZ4, ZSTD, NONE };
 
-//! Validate a public text argument before building the conversion plan.
-string ReadRequiredString(const Value &value, const char *name) {
+//! Read a non-NULL VARCHAR argument.
+string GetStringArgument(const Value &value, const char *name) {
 	if (value.IsNull()) {
 		throw InvalidInputException("%s must not be NULL", name);
 	}
-	auto result = StringValue::Get(value);
-	if (result.find_first_not_of(" \t\r\n") == string::npos || result.find('\0') != string::npos) {
-		throw InvalidInputException("%s must be nonblank and contain no NUL bytes", name);
-	}
-	return result;
+	return StringValue::Get(value);
 }
 
 //! Resolve the supported text codecs to the internal compression enum.
@@ -55,15 +51,15 @@ const char *GetTextCompressionName(TextCompression compression) {
 //! Plan conversion with the bundled reader/writer in the caller's context, preserving its secrets and settings.
 unique_ptr<LogicalOperator> BindTrajectoryConversion(ClientContext &context, TableFunctionBindInput &input,
                                                      TableIndex bind_index, vector<Identifier> &names) {
-	auto source = ReadRequiredString(input.inputs[0], "source");
+	auto source = GetStringArgument(input.inputs[0], "source");
 	string destination;
 	auto compression = TextCompression::LZ4;
 	for (const auto &parameter : input.named_parameters) {
 		auto name = parameter.first.GetIdentifierName();
 		if (name == "trajectory_destination") {
-			destination = ReadRequiredString(parameter.second, "trajectory_destination");
+			destination = GetStringArgument(parameter.second, "trajectory_destination");
 		} else if (name == "text_compression") {
-			compression = ParseTextCompression(ReadRequiredString(parameter.second, "text_compression"));
+			compression = ParseTextCompression(GetStringArgument(parameter.second, "text_compression"));
 		}
 	}
 	if (destination.empty()) {
