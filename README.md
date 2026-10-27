@@ -140,29 +140,3 @@ With cleanup disabled, a failed call can leave partial datasets. This setting
 applies to `ingest_agent_run`, not to standalone `import_agent_trajectory`.
 An explicit `ROLLBACK` after a successful ingestion rolls back its DuckDB
 metadata inserts, but does not delete the external Lance datasets.
-
-## Installation and development
-
-The extension targets DuckDB v2.0.0 and must be loaded with the version it was
-built against. Build from the checkout with CMake, C++17, Cargo, `protoc`, and
-Python 3.10 or newer for the test runner:
-
-```sh
-git submodule update --init --recursive
-GEN=ninja make release
-make test
-```
-
-The schema migration SQL files are runtime resources. Install them alongside
-the extension, or set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their directory before
-loading it. Repository Make targets use `schema/migrations` automatically.
-If you have built the extension but not installed it, load the
-`agent_runs.duckdb_extension` file from `build/release/extension/agent_runs/`
-by path instead of using `LOAD agent_runs`.
-Loading the extension checks and applies pending migrations in its fixed
-`agent_runs` schema. See [schema design and evolution](schema/README.md) for
-the table layout and migration policy.
-
-`make test` runs SQLLogicTests against the repository's `testdata/` fixtures.
-The tests use a separate Lance reader to verify the written datasets. Use
-`make format-all` to format the C++, SQL tests, and CMake files.
