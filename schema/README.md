@@ -73,9 +73,7 @@ while there was no production data; recreate any development database initialize
 with the earlier `0001.sql`. CMake embeds the checked-in SQL files in the
 extension binary at build time, ordered by their numeric filenames. Adding a
 migration therefore requires rebuilding the extension. Community installs only
-need that binary; they do not need a separate migration directory. For local
-experiments, set `DUCKDB_AGENT_RUNS_MIGRATIONS` before starting DuckDB to use
-SQL files from a directory instead of the bundled versions.
+need that binary; they do not need a separate migration directory.
 
 Open a file-backed DuckDB database to persist the ledger and metadata together
 in that one file. The migration connection shares the extension's database
