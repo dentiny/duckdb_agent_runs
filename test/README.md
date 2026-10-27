@@ -9,7 +9,8 @@ metadata, decoded text, tool calls, and image/audio bytes against those fixtures
 The reader is a test-only dependency pinned in `test/extension_config.cmake`,
 including Blob v2 materialization support. `make release` builds it by default;
 `BUILD_EXTENSION_TEST_DEPS=none` omits test dependencies from runtime-only builds.
-CI passes `--require lance` so a missing reader fails instead of skipping tests.
+Pass `--require lance` to the native test runner so a missing reader fails
+instead of skipping tests.
 
 Writing and verification use separate databases because the two extensions
 register the same COPY format. Neither `read_atif` nor the dependency's COPY API
@@ -26,4 +27,4 @@ make test
 ```
 
 Use a disposable HTTP/path-style S3 service and an existing bucket. Tests write
-under a random prefix. CI creates and removes its own service and bucket.
+under a random prefix.
