@@ -45,7 +45,11 @@ Job/trial ingestion into typed DuckDB tables is a separate PR.
 ## Tests
 
 `make test` runs native SQLLogicTests in `test/sql/` against repository-owned
-`testdata/` fixtures, including text, gzip, and image/audio trajectories. There
+`testdata/` fixtures, including text, gzip, and image/audio trajectories.
+Tests call our conversion API and use a separate, pinned `lance` test dependency
+to read back and compare the stored values and media bytes with those fixtures.
+The reader is built by default; use `BUILD_EXTENSION_TEST_DEPS=none` for builds
+without test dependencies. There
 is no Python integration test runner. Optional S3 tests use the variables listed
 in `test/README.md`. CI runs them against a disposable RustFS service.
 

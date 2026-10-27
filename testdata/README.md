@@ -9,4 +9,6 @@ The JSON and media were copied from synthetic conformance fixtures in
 `0c27b7cfa5746c8a3b99cf2712b83cec4588a3ae`; these are not production captures.
 The image is a 1024 × 768 RGB pattern. The audio is a 0.1-second 440 Hz mono
 16-bit PCM tone sampled at 8 kHz. Public API tests convert these multimodal
-fixtures and compressed text inputs through `convert_agent_trajectory`.
+fixtures and compressed text inputs through `convert_agent_trajectory`, then
+read the datasets with Lance to compare metadata, text, tool calls, and embedded
+media bytes against the original local files.

@@ -21,23 +21,28 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: external/duckdb_lance_conversion/rust -> ../../../build/release/rust-lance-conversion
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ninja-build protobuf-compiler
-      - name: Build extension and native SQL test runner
+      - name: Configure extension and test dependencies
         run: |
           cmake -S duckdb -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DDUCKDB_EXTENSION_CONFIGS="$PWD/extension_config.cmake" \
             -DUNITTEST_ROOT_DIRECTORY="$PWD" \
+            -DBUILD_EXTENSION_TEST_DEPS=default \
             -DOVERRIDE_GIT_DESCRIBE=v2.0.0 -DBUILD_UNITTESTS=ON \
             -DENABLE_UNITTEST_CPP_TESTS=OFF \
             -DENABLE_SANITIZER=OFF -DENABLE_UBSAN=OFF
-          cmake --build build/release --target duckdb unittest agent_runs_loadable_extension -j 2
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            external/duckdb_lance_conversion/rust -> ../../../build/release/rust-lance-conversion
+            build/release/_deps/lance_extension_fc-src -> ../../cargo
+      - name: Build extension and native SQL test runner
+        run: |
+          cmake --build build/release --target duckdb unittest agent_runs_loadable_extension lance_loadable_extension -j 2
           cmake --build build/release --target duckdb_local_extension_repo
       - name: Start disposable S3 service
         run: |
@@ -52,7 +57,7 @@ jobs:
       - name: Install httpfs
         run: build/release/duckdb -c "SET extension_directory='$PWD/build/release/repository'; INSTALL httpfs;"
       - name: Run SQLLogicTests
-        run: build/release/test/unittest --require agent_runs --require httpfs "test/sql/*"
+        run: build/release/test/unittest --require agent_runs --require lance --require httpfs "test/sql/*"
       - name: Stop S3 service
         if: always()
         run: docker rm -fv agent-runs-s3
