@@ -8,7 +8,7 @@ foreach codec lz4 zstd none
 
 query I
 CALL import_agent_trajectory('testdata/atif/multimodal/trajectory.json',
-    trajectory_destination := '{TEST_DIR}/{codec}.lance', text_compression := '{codec}');
+    trajectory_destination := '{TEST_DIR}/{codec}.lance', text_compression := upper('{codec}'));
 ----
 1
 

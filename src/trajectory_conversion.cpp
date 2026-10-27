@@ -22,13 +22,13 @@ string GetStringArgument(const Value &value, const char *name) {
 
 //! Resolve the supported text codecs to the internal compression enum.
 TextCompression ParseTextCompression(const string &name) {
-	if (name == "lz4") {
+	if (StringUtil::CIEquals(name, "lz4")) {
 		return TextCompression::LZ4;
 	}
-	if (name == "zstd") {
+	if (StringUtil::CIEquals(name, "zstd")) {
 		return TextCompression::ZSTD;
 	}
-	if (name == "none") {
+	if (StringUtil::CIEquals(name, "none")) {
 		return TextCompression::NONE;
 	}
 	throw InvalidInputException("Unsupported text_compression: %s", name);
