@@ -212,23 +212,8 @@ void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options,
 		auto conversion_error = std::current_exception();
 		executor.CancelAndDrain();
 		if (cleanup_enabled) {
-			vector<string> cleanup_errors;
 			for (const auto &uri : destinations) {
-				try {
-					DeleteLanceDataset(context, uri);
-				} catch (const std::exception &error) {
-					cleanup_errors.emplace_back(StringUtil::Format("%s: %s", uri, error.what()));
-				}
-			}
-			if (!cleanup_errors.empty()) {
-				string conversion_message;
-				try {
-					std::rethrow_exception(conversion_error);
-				} catch (const std::exception &error) {
-					conversion_message = error.what();
-				}
-				throw IOException("Trajectory conversion failed: %s; cleanup failed: %s", conversion_message,
-				                  StringUtil::Join(cleanup_errors, "; "));
+				DeleteLanceDataset(context, uri);
 			}
 		}
 		std::rethrow_exception(conversion_error);
