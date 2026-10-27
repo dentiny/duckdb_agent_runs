@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 project(agent_runs)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 include_directories(src/include external/duckdb_lance_conversion/src/include)
 set(EXTENSION_SOURCES src/agent_runs_extension.cpp src/schema_migration.cpp
                       src/trajectory_conversion.cpp)

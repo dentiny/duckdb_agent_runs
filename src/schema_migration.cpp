@@ -69,7 +69,7 @@ void ApplySchemaMigrations(Connection &connection, const string &directory) {
 
 } // namespace
 
-QualifiedName GetAgentRunsName(ClientContext &context, const char *name) {
+QualifiedName GetAgentRunsName(ClientContext &context, std::string_view name) {
 	return QualifiedName(DatabaseManager::Get(context).GetDefaultDatabase(), Identifier("agent_runs"),
 	                     Identifier(name));
 }
