@@ -28,15 +28,13 @@ my-job/
 
 Open a file-backed DuckDB database if you want to keep the metadata between
 sessions. Loading the extension creates or updates its tables in that database.
-When loading a build from this checkout, set `DUCKDB_AGENT_RUNS_MIGRATIONS` to
-the absolute path of `schema/migrations` before starting DuckDB.
 
 ```sh
-export DUCKDB_AGENT_RUNS_MIGRATIONS="$PWD/schema/migrations"
 duckdb agent_runs.duckdb
 ```
 
 ```sql
+FORCE INSTALL agent_runs FROM community;
 LOAD agent_runs;
 
 CALL ingest_agent_run(
