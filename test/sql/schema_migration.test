@@ -4,16 +4,15 @@
 
 require agent_runs
 
-# Loading and preparing are read-only.
-statement ok
-PREPARE migrate AS SELECT * FROM migrate_agent_runs();
-
+# Requiring the extension initializes the catalog automatically.
 query I
-SELECT count(*) FROM duckdb_tables() WHERE table_name = 'schema_migrations';
+SELECT version FROM schema_migrations;
 ----
-0
+1
 
 # A late DDL failure must roll back both earlier types and the version table.
+restart no_extension_load
+
 statement ok
 CREATE TABLE jobs (sentinel INTEGER);
 
@@ -21,7 +20,7 @@ statement ok
 INSERT INTO jobs VALUES (42);
 
 statement error
-CALL migrate_agent_runs();
+LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 ----
 already exists
 
@@ -39,22 +38,9 @@ SELECT sentinel FROM jobs;
 statement ok
 DROP TABLE jobs;
 
-# Schema management owns its transaction and cannot commit a caller's transaction.
+# Retrying the load succeeds without cleanup of partially applied migrations.
 statement ok
-BEGIN;
-
-statement error
-CALL migrate_agent_runs();
-----
-outside an explicit transaction
-
-statement ok
-ROLLBACK;
-
-query I
-EXECUTE migrate;
-----
-1
+LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 
 query I
 SELECT version FROM schema_migrations;
@@ -85,38 +71,11 @@ SELECT count(*) FROM duckdb_constraints() WHERE table_name = 'trials' AND constr
 ----
 1
 
-statement ok
-CREATE TABLE retained_data AS SELECT 42 AS value;
-
-query I
-CALL migrate_agent_runs();
-----
-1
-
-query II
-SELECT (SELECT count(*) FROM schema_migrations), (SELECT value FROM retained_data);
-----
-1	42
-
-# A newer catalog must not be downgraded or have its data rewritten.
-statement ok
-INSERT INTO schema_migrations VALUES (2);
-
-statement error
-CALL migrate_agent_runs();
-----
-Catalog schema version 2 is newer than supported version 1
-
-query II
-SELECT (SELECT max(version) FROM schema_migrations), (SELECT value FROM retained_data);
-----
-2	42
-
-# The version and typed catalog survive a file-backed database reopen.
+# Reopening a file-backed database loads the extension and checks versions again.
 load {TEST_DIR}/catalog.db
 
 query I
-CALL migrate_agent_runs();
+SELECT version FROM schema_migrations;
 ----
 1
 
@@ -149,11 +108,6 @@ CREATE TABLE retained_data AS SELECT 7 AS value;
 
 restart
 
-query I
-CALL migrate_agent_runs();
-----
-1
-
 query II
 SELECT (SELECT version FROM schema_migrations), (SELECT value FROM retained_data);
 ----
@@ -180,3 +134,38 @@ INSERT INTO trials SELECT '00000000-0000-0000-0000-000000000003',
     '00000000-0000-0000-0000-000000000099', trial_name, config, result, dataset_uri FROM trials;
 ----
 foreign key
+
+# A newer catalog must fail extension initialization without rewriting data.
+statement ok
+INSERT INTO schema_migrations VALUES (2);
+
+restart no_extension_load
+
+statement error
+LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
+----
+Catalog schema version 2 is newer than supported version 1
+
+query IT
+SELECT (SELECT max(version) FROM schema_migrations), (SELECT job_name FROM jobs);
+----
+2	existing-job
+
+statement ok
+DELETE FROM schema_migrations WHERE version = 2;
+
+statement ok
+LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
+
+query II
+SELECT (SELECT count(*) FROM schema_migrations), (SELECT count(*) FROM trials);
+----
+1	1
+
+# An up-to-date read-only catalog requires no migration writes.
+load {TEST_DIR}/catalog.db readonly
+
+query IT
+SELECT (SELECT version FROM schema_migrations), (SELECT job_name FROM jobs);
+----
+1	existing-job

@@ -10,7 +10,7 @@ namespace {
 void LoadInternal(ExtensionLoader &loader) {
 	DuckDB db(loader.GetDatabaseInstance());
 	db.LoadStaticExtension<LanceConversionExtension>();
-	RegisterSchemaMigration(loader);
+	MigrateAgentRunsSchema(loader.GetDatabaseInstance());
 	RegisterTrajectoryConversion(loader);
 	loader.SetDescription("Import ATIF trajectories into Lance and manage the job/trial catalog schema.");
 }

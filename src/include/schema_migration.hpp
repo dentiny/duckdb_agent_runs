@@ -2,9 +2,9 @@
 
 namespace duckdb {
 
-class ExtensionLoader;
+class DatabaseInstance;
 
-//! Register the explicit, transactional schema migration entry point.
-void RegisterSchemaMigration(ExtensionLoader &loader);
+//! Check the recorded schema version on extension load and atomically apply pending migrations.
+void MigrateAgentRunsSchema(DatabaseInstance &database);
 
 } // namespace duckdb

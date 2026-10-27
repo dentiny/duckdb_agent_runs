@@ -6,20 +6,26 @@
 `trajectory_data/src/schema.rs` and build-time migration embedding.
 
 ```sql
-LOAD agent_runs;
-CALL migrate_agent_runs(); -- returns schema_version = 1
+LOAD agent_runs; -- initializes or upgrades the catalog
+SELECT max(version) FROM schema_migrations;
 ```
 
-Call this explicitly before ingestion, outside an explicit transaction. It uses
-its own connection and transaction against the caller's current database, in the
-`main` schema. It does not use the caller's search path. Loading the extension
-and binding/preparing the call do not modify the catalog. Repeated calls apply
-only pending migrations and preserve existing rows.
+Extension initialization reads the largest recorded version from
+`schema_migrations` and compares it with the latest migration embedded in the
+extension. It applies only newer migrations, in order. A fresh database starts at
+version 0; a catalog already at the latest version requires no schema writes.
+
+The check runs in `LoadInternal` before the extension's functions are registered.
+It uses a dedicated connection and one transaction against the database
+instance's default database, in the `main` schema. Reopening the database and
+loading the extension checks versions again. DuckDB initializes an extension
+once per database instance; another `LOAD` after successful initialization is a
+no-op. There is no separate migration function to call before ingestion.
 
 All pending SQL and the corresponding `schema_migrations(version INTEGER PRIMARY
 KEY CHECK (version > 0))` records commit together. Failure rolls back the batch;
 retrying does not require manual cleanup. A database with a newer recorded
-version is rejected. Concurrent migration attempts can conflict; retry after the
+version fails extension initialization. Concurrent migration attempts can conflict; retry after the
 other caller finishes. The runner never rewrites or drops existing tables to
 force initialization to succeed.
 
@@ -65,7 +71,7 @@ must not be assumed to rewrite stored columns. The ingestion adapter must target
 the resulting schema version.
 
 Every new migration needs native SQL tests that start with a populated prior
-version, verify transformed values and constraints, repeat the migration call,
+version, verify transformed values and constraints, reopen the database and load the extension again,
 and exercise a failed upgrade followed by a retry. Test a file-backed database
 across reopen as well. Do not add a placeholder migration solely to increment
 the version. There is no automatic downgrade; restore a backup to roll back an
