@@ -75,6 +75,26 @@ Harbor result files. Existing rows are not replaced, so importing the same
 job again fails on its unique ID. The extension reads metadata and trajectories;
 it does not copy other job files, logs, or artifacts.
 
+## Schema management
+
+`LOAD agent_runs` creates the fixed `agent_runs` schema and its jobs/trials tables
+in the default DuckDB database on first load. On later loads, it compares the
+recorded version with the available numbered SQL migrations and applies only
+newer versions. No separate migration command is needed. The version and the
+SQL that was applied are stored in `agent_runs.schema_migrations`:
+
+```sql
+SELECT version FROM agent_runs.schema_migrations ORDER BY version;
+```
+
+The tables and migration history persist together in a file-backed DuckDB
+database; Lance datasets remain at their external destinations. Migration SQL
+files must be available when the extension loads. If they are outside its
+configured install directory, set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their
+directory before starting DuckDB. A failed migration rolls back as a unit.
+See [schema design and evolution](schema/README.md) for the table layout and
+migration policy.
+
 ## Import one ATIF trajectory
 
 Use this call when you only need a Lance dataset:
