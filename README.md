@@ -13,7 +13,8 @@ calls:
 
 The job directory needs `config.json` and `result.json`. Each trial needs its
 own metadata pair and `agent/trajectory.json`. Trials can be directly under
-the job directory, as shown here, or under a `trials/` directory.
+the job directory, as shown here with multimodal data, or under a `trials/`
+directory.
 
 ```text
 my-job/
@@ -23,8 +24,14 @@ my-job/
     ├── config.json
     ├── result.json
     └── agent/
-        └── trajectory.json
+        ├── trajectory.json
+        ├── atif-image.png
+        └── atif-audio.wav
 ```
+
+Media files are needed only when the trajectory references them. ATIF media
+paths are relative to `trajectory.json`; ingestion embeds their bytes in the
+Lance dataset.
 
 Open a file-backed DuckDB database if you want to keep the metadata between
 sessions. Loading the extension creates or updates its tables in that database.
