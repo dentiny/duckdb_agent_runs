@@ -6,21 +6,22 @@ require agent_runs
 
 load {TEST_DIR}/catalog.db
 
-query IIII
-SELECT (SELECT max(version) FROM agent_runs.schema_migrations), (SELECT count(*) FROM agent_runs.schema_migrations),
+query IIIII
+SELECT (SELECT max(version) FROM agent_runs.schema_migrations), (SELECT count(sql) FROM agent_runs.schema_migrations),
+       (SELECT count(*) FROM agent_runs.schema_migrations),
        (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
 ----
-1	1	0	0
+1	1	1	0	0
 
 restart
 
-query II
-SELECT max(version), count(*) FROM agent_runs.schema_migrations;
+query III
+SELECT max(version), count(*), count(sql) FROM agent_runs.schema_migrations;
 ----
-1	1
+1	1	1
 
 statement ok
-INSERT INTO agent_runs.schema_migrations VALUES (2);
+INSERT INTO agent_runs.schema_migrations VALUES (2, 'future migration');
 
 restart no_extension_load
 

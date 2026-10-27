@@ -1,6 +1,7 @@
 # Catalog schema and evolution
 
-`migrations/0001.sql` adapts the existing Harbor catalog schema from
+`migrations/schema.sql` creates the `agent_runs` schema and persistent
+`schema_migrations(version, sql)` table. `migrations/0001.sql` adapts the existing Harbor catalog schema from
 `ml-infra` commit `d7af6649c51790c78afc1ed4d5af990a1ec634b7`,
 `trajectory_data/schema/0001.sql`, qualifying objects and their cross-references
 with `agent_runs`. The migration runner follows that repository's
@@ -13,7 +14,7 @@ SELECT max(version) FROM agent_runs.schema_migrations;
 
 Extension initialization reads the largest recorded version from
 `agent_runs.schema_migrations` and compares it with the latest migration
-available in the SQL migration directory. It applies only newer migrations, in order. A fresh database starts at
+available in the SQL migration directory. It applies only newer migrations, in order, storing the exact executed SQL alongside each version. A fresh database starts at
 version 0; a catalog already at the latest version requires no schema writes.
 
 The check runs in `LoadInternal` before the extension's functions are registered.
@@ -32,8 +33,8 @@ newer recorded version fails extension initialization. Concurrent migration
 attempts can conflict; retry after the other caller finishes. The runner never rewrites or drops existing tables to
 force initialization to succeed.
 
-The table definitions and version record format match ml-infra; this extension
-isolates them in `agent_runs` rather than the service's `main` schema. Existing
+The job/trial table definitions match ml-infra; this extension
+isolates them in `agent_runs` rather than the service's `main` schema. The migration ledger additionally stores the executed SQL. Existing
 `main.jobs`, `main.trials` and `main.schema_migrations` are not adopted, moved or
 modified. Importing such a catalog requires an explicit data/schema migration;
 a version recorded in another schema must not cause extension migrations to be
@@ -77,6 +78,11 @@ loading to use another directory. Repository Make targets set this variable to
 `schema/migrations` in the checkout, so development tests do not depend on the
 working directory. The compiled default is the configured installation prefix;
 use the environment override when relocating an installation.
+
+Open a file-backed DuckDB database to persist the ledger and metadata together
+in that one file. The migration connection shares the extension's database
+instance and does not attach or create another database. An in-memory DuckDB
+database remains in memory. Lance trajectory datasets are external files.
 
 Use an additive migration where possible: new nullable fields or columns must
 leave existing rows readable. For incompatible type changes, explicitly

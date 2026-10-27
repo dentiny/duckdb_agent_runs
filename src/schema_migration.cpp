@@ -13,7 +13,7 @@ namespace {
 map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &directory) {
 	map<int32_t, string> migrations;
 	fs.ListFiles(directory, [&](const string &filename, bool is_directory) {
-		if (is_directory || fs.ExtractExtension(filename) != "sql") {
+		if (is_directory || filename == "schema.sql" || fs.ExtractExtension(filename) != "sql") {
 			return;
 		}
 		auto version = Value(fs.ExtractBaseName(filename)).GetValue<int32_t>();
@@ -27,6 +27,13 @@ map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &director
 	return migrations;
 }
 
+//! Read a SQL file as an owning string before its query result is released.
+string ReadMigrationSQL(Connection &connection, const string &path) {
+	auto result = connection.Query("SELECT content FROM read_text(?)", Value(path));
+	result->ThrowIfError();
+	return result->Fetch()->GetValue(0, 0).GetValue<string>();
+}
+
 //! Execute all statements and surface any failure so the owning transaction rolls back.
 void ExecuteMigrationSQL(Connection &connection, const string &sql) {
 	auto result = connection.Query(sql);
@@ -38,14 +45,9 @@ void ExecuteMigrationSQL(Connection &connection, const string &sql) {
 //! Apply pending SQL and version records within the owning transaction.
 void ApplySchemaMigrations(Connection &connection, const string &directory) {
 	auto name = GetAgentRunsName(*connection.context, "schema_migrations");
-	auto &catalog = Catalog::GetCatalog(*connection.context, name.Catalog());
-	if (!catalog.GetSchema(*connection.context, name.Schema(), OnEntryNotFound::RETURN_NULL)) {
-		ExecuteMigrationSQL(connection, StringUtil::Format("CREATE SCHEMA %s", name.Parent().ToString()));
-	}
 	if (!Catalog::GetEntry<TableCatalogEntry>(*connection.context, name, OnEntryNotFound::RETURN_NULL)) {
-		ExecuteMigrationSQL(connection, StringUtil::Format("CREATE TABLE %s "
-		                                                   "(version INTEGER PRIMARY KEY CHECK (version > 0))",
-		                                                   name.ToString()));
+		auto path = FileSystem::GetFileSystem(*connection.context).JoinPath(directory, "schema.sql");
+		ExecuteMigrationSQL(connection, ReadMigrationSQL(connection, path));
 	}
 	auto result = connection.Query(StringUtil::Format("SELECT coalesce(max(version), 0) FROM %s", name.ToString()));
 	result->ThrowIfError();
@@ -59,10 +61,12 @@ void ApplySchemaMigrations(Connection &connection, const string &directory) {
 		if (version <= applied) {
 			continue;
 		}
-		auto sql = connection.Query("SELECT content FROM read_text(?)", Value(path));
-		sql->ThrowIfError();
-		ExecuteMigrationSQL(connection, sql->Fetch()->GetValue(0, 0).GetValue<string>());
-		ExecuteMigrationSQL(connection, StringUtil::Format("INSERT INTO %s VALUES (%d)", name.ToString(), version));
+		auto sql = ReadMigrationSQL(connection, path);
+		ExecuteMigrationSQL(connection, sql);
+		auto record =
+		    connection.Query(StringUtil::Format("INSERT INTO %s (version, sql) VALUES (?, ?)", name.ToString()),
+		                     Value::INTEGER(version), Value(sql));
+		record->ThrowIfError();
 	}
 }
 
