@@ -72,6 +72,7 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	for (const auto &directory : directories) {
 		auto trial = ReadMetadataRecord(context, fs, directory);
 		trial.name = ReadRequiredField(context, trial.result, "trial_name");
+		trial.trajectory_path = fs.JoinPath(directory, "agent", "trajectory.json");
 		metadata.trials.emplace_back(std::move(trial));
 	}
 	return metadata;

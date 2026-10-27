@@ -1,0 +1,9 @@
+{
+  "id": "00000000-0000-0000-0000-000000000011",
+  "started_at": "2026-10-01T00:00:00Z",
+  "finished_at": "2026-10-01T01:00:00Z",
+  "n_total_trials": 1,
+  "stats": {
+    "n_completed_trials": 1
+  }
+}

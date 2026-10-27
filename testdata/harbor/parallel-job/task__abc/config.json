@@ -1,0 +1,19 @@
+{
+  "task": {
+    "path": "task-a"
+  },
+  "trials_dir": "trials",
+  "install_only": false,
+  "timeout_multiplier": 1,
+  "agent": {
+    "name": "agent"
+  },
+  "environment": {
+    "type": "docker"
+  },
+  "verifier": {
+    "disable": false
+  },
+  "artifacts": [],
+  "extra_instruction_paths": []
+}

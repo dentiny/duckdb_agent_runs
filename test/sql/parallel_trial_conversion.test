@@ -1,0 +1,47 @@
+# name: test/sql/parallel_trial_conversion.test
+# description: Ingest a Harbor job with two ATIF trajectories into independent Lance datasets
+# group: [sql]
+
+require agent_runs
+
+statement ok
+SET threads = 2;
+
+statement error
+CALL ingest_agent_run('testdata/harbor/missing-trajectory', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/missing');
+----
+entity not found
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
+
+query TTI
+CALL ingest_agent_run('testdata/harbor/parallel-job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+00000000-0000-0000-0000-000000000009	parallel-job	2
+
+query I
+SELECT count(*) FROM agent_runs.trials WHERE job_id = '00000000-0000-0000-0000-000000000009';
+----
+2
+
+# Read with the independent Lance test extension in a fresh database.
+restart no_extension_load
+
+require lance
+
+query TT
+SELECT trajectory_id, decode(steps[1].message[1].text)
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000010.lance';
+----
+single	hello
+
+query TT
+SELECT trajectory_id, decode(steps[1].message[1].text)
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000008.lance';
+----
+second	second trial
