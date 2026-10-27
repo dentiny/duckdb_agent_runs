@@ -1,4 +1,4 @@
-# name: test/sql/convert_agent_trajectory.test
+# name: test/sql/import_agent_trajectory.test
 # description: Read back agent_runs output with the independent Lance test dependency
 # group: [sql]
 
@@ -7,7 +7,7 @@ require agent_runs
 foreach codec lz4 zstd none
 
 query I
-CALL convert_agent_trajectory('testdata/atif/multimodal/trajectory.json',
+CALL import_agent_trajectory('testdata/atif/multimodal/trajectory.json',
     trajectory_destination := '{TEST_DIR}/{codec}.lance', text_compression := '{codec}');
 ----
 1
@@ -15,13 +15,13 @@ CALL convert_agent_trajectory('testdata/atif/multimodal/trajectory.json',
 endloop
 
 query I
-CALL convert_agent_trajectory('testdata/atif/text/trajectory.json.gz',
+CALL import_agent_trajectory('testdata/atif/text/trajectory.json.gz',
     trajectory_destination := '{TEST_DIR}/gzip.lance');
 ----
 1
 
 query I
-CALL convert_agent_trajectory('testdata/atif/text/trajectory.json',
+CALL import_agent_trajectory('testdata/atif/text/trajectory.json',
     trajectory_destination := '{TEST_DIR}/quote''s.lance');
 ----
 1

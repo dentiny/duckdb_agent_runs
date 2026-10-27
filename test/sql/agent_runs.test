@@ -5,6 +5,6 @@
 require agent_runs
 
 query I
-SELECT count(*) FROM duckdb_functions() WHERE function_name = 'convert_agent_trajectory';
+SELECT count(*) FROM duckdb_functions() WHERE function_name = 'import_agent_trajectory';
 ----
 1

@@ -3,7 +3,7 @@
 Run `make release` and `make test`. All tests are native DuckDB SQLLogicTests.
 Inputs in `testdata/atif/` are static fixtures owned by this repository.
 
-The conversion test calls only `convert_agent_trajectory` to write datasets.
+The conversion test calls only `import_agent_trajectory` to write datasets.
 It then reads them with the independent `lance` extension and compares typed
 metadata, decoded text, tool calls, and image/audio bytes against those fixtures.
 The reader is a test-only dependency pinned in `test/extension_config.cmake`,

@@ -87,7 +87,7 @@ unique_ptr<LogicalOperator> BindTrajectoryConversion(ClientContext &context, Tab
 } // namespace
 
 void RegisterTrajectoryConversion(ExtensionLoader &loader) {
-	TableFunction function("convert_agent_trajectory", {LogicalType::VARCHAR}, nullptr, nullptr);
+	TableFunction function("import_agent_trajectory", {LogicalType::VARCHAR}, nullptr, nullptr);
 	function.bind_operator = BindTrajectoryConversion;
 	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
 		options.Add("trajectory_destination", LogicalType::VARCHAR);

@@ -22,7 +22,7 @@ Convert a trajectory with a single function call:
 ```sql
 LOAD agent_runs;
 
-CALL convert_agent_trajectory(
+CALL import_agent_trajectory(
     '/data/trial/agent/trajectory.json',
     trajectory_destination := 's3://bucket/trajectories/job-id/trial-id.lance',
     text_compression := 'lz4'
