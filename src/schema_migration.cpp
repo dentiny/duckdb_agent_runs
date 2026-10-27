@@ -59,10 +59,8 @@ void ApplySchemaMigrations(Connection &connection, const string &directory) {
 	if (applied > latest) {
 		throw InvalidInputException("Catalog schema version %d is newer than supported version %d", applied, latest);
 	}
-	for (const auto &[version, path] : migrations) {
-		if (version <= applied) {
-			continue;
-		}
+	for (auto it = migrations.upper_bound(applied); it != migrations.end(); ++it) {
+		const auto &[version, path] = *it;
 		auto sql = ReadMigrationSQL(connection, path);
 		ExecuteMigrationSQL(connection, sql);
 		auto record =
