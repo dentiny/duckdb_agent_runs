@@ -6,36 +6,39 @@
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "trajectory_conversion.hpp"
+#include "util.hpp"
+
+#include <string_view>
 
 namespace duckdb {
 namespace {
 
 enum class TextCompression : uint8_t { LZ4, ZSTD, NONE };
 
-//! Read a non-NULL VARCHAR argument.
-string GetStringArgument(const Value &value, const char *name) {
+//! Borrow a non-NULL VARCHAR argument while its Value remains alive.
+std::string_view GetStringArgument(const Value &value, std::string_view name) {
 	if (value.IsNull()) {
-		throw InvalidInputException("%s must not be NULL", name);
+		throw InvalidInputException("%s must not be NULL", string(name));
 	}
 	return StringValue::Get(value);
 }
 
 //! Resolve the supported text codecs to the internal compression enum.
-TextCompression ParseTextCompression(const string &name) {
-	if (StringUtil::CIEquals(name, "lz4")) {
+TextCompression ParseTextCompression(std::string_view name) {
+	if (CIEquals(name, "lz4")) {
 		return TextCompression::LZ4;
 	}
-	if (StringUtil::CIEquals(name, "zstd")) {
+	if (CIEquals(name, "zstd")) {
 		return TextCompression::ZSTD;
 	}
-	if (StringUtil::CIEquals(name, "none")) {
+	if (CIEquals(name, "none")) {
 		return TextCompression::NONE;
 	}
-	throw InvalidInputException("Unsupported text_compression: %s", name);
+	throw InvalidInputException("Unsupported text_compression: %s", string(name));
 }
 
 //! Render only validated enum values into the dependency's COPY options.
-const char *GetTextCompressionName(TextCompression compression) {
+std::string_view GetTextCompressionName(TextCompression compression) {
 	switch (compression) {
 	case TextCompression::LZ4:
 		return "lz4";
@@ -52,10 +55,10 @@ const char *GetTextCompressionName(TextCompression compression) {
 unique_ptr<LogicalOperator> BindTrajectoryConversion(ClientContext &context, TableFunctionBindInput &input,
                                                      TableIndex bind_index, vector<Identifier> &names) {
 	auto source = GetStringArgument(input.inputs[0], "source");
-	string destination;
+	std::string_view destination;
 	auto compression = TextCompression::LZ4;
 	for (const auto &parameter : input.named_parameters) {
-		auto name = parameter.first.GetIdentifierName();
+		std::string_view name = parameter.first.GetIdentifierName();
 		if (name == "trajectory_destination") {
 			destination = GetStringArgument(parameter.second, "trajectory_destination");
 		} else if (name == "text_compression") {
@@ -66,11 +69,12 @@ unique_ptr<LogicalOperator> BindTrajectoryConversion(ClientContext &context, Tab
 		throw InvalidInputException("trajectory_destination is required");
 	}
 	// Expand to a native COPY plan to reuse the caller's secrets, settings, and execution context.
+	auto compression_name = string(GetTextCompressionName(compression));
 	auto sql = StringUtil::Format("COPY (SELECT * FROM read_atif(%s)) TO %s "
 	                              "(FORMAT LANCE, STORAGE_VERSION '2.2', COLUMN_COMPRESSION {"
 	                              "'steps.message.text': '%s', 'steps.observation.results.content.text': '%s'})",
-	                              SQLString::ToString(source), SQLString::ToString(destination),
-	                              GetTextCompressionName(compression), GetTextCompressionName(compression));
+	                              SQLString::ToString(string(source)), SQLString::ToString(string(destination)),
+	                              compression_name, compression_name);
 	Parser parser(context);
 	parser.ParseQuery(sql);
 	auto binder = Binder::CreateBinder(context, input.binder);

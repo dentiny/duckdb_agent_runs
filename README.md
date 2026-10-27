@@ -54,3 +54,19 @@ is no Python integration test runner. Optional S3 tests use the variables listed
 in `test/README.md`.
 
 Use `make format-all` to format C++, SQL tests, and CMake files.
+
+## Catalog schema
+
+`LOAD agent_runs` initializes or upgrades the job/trial metadata catalog. It
+uses a fixed `agent_runs` schema for its tables, types, macros and version
+records. It compares the largest recorded schema version with the latest SQL migration file
+and applies only pending versions in one transaction. Existing rows are
+preserved; an already up-to-date catalog needs no schema writes. A newer,
+unsupported catalog version fails extension loading.
+
+See [schema design and evolution](schema/README.md) for the typed tables,
+ml-infra compatibility and upgrade policy.
+
+SQL migrations are runtime resources. Install them with the extension using
+CMake, or set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their directory before loading.
+Repository Make targets select the checkout's `schema/migrations` automatically.
