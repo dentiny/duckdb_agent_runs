@@ -1,18 +1,17 @@
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/common/file_system.hpp"
+#include "duckdb/common/map.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "schema_migration.hpp"
-
-#include <map>
 
 namespace duckdb {
 namespace {
 
 //! Read numbered SQL filenames in version order from the installed migration directory.
-std::map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &directory) {
-	std::map<int32_t, string> migrations;
+map<int32_t, string> FindSchemaMigrations(FileSystem &fs, const string &directory) {
+	map<int32_t, string> migrations;
 	fs.ListFiles(directory, [&](const string &filename, bool is_directory) {
 		if (is_directory || fs.ExtractExtension(filename) != "sql") {
 			return;
