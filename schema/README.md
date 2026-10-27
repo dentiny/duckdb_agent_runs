@@ -14,7 +14,7 @@ SELECT max(version) FROM agent_runs.schema_migrations;
 
 Extension initialization reads the largest recorded version from
 `agent_runs.schema_migrations` and compares it with the latest migration
-available in the SQL migration directory. It applies only newer migrations, in order, storing the exact executed SQL alongside each version. A fresh database starts at
+bundled in the extension binary. It applies only newer migrations, in order, storing the exact executed SQL alongside each version. A fresh database starts at
 version 0; a catalog already at the latest version requires no schema writes.
 
 The check runs in `LoadInternal` before the extension's functions are registered.
@@ -70,18 +70,12 @@ metadata objects, custom type names and cross-references with `agent_runs`; do
 not depend on the caller's search path or persist unqualified macro references.
 Applied files are immutable after deployment. This pre-release baseline changed
 while there was no production data; recreate any development database initialized
-with the earlier `0001.sql`. The extension reads filenames and SQL at load time,
-orders migrations by their numeric filename, and applies versions newer than the
-database's recorded maximum. Adding a SQL migration does not require generated
-C++ or a rebuild.
-
-CMake installs the SQL files to `<CMAKE_INSTALL_PREFIX>/share/agent_runs/migrations`.
-Install them together with the extension; DuckDB's binary-only `INSTALL` command
-does not copy these companion files. Set `DUCKDB_AGENT_RUNS_MIGRATIONS` before
-loading to use another directory. Repository Make targets set this variable to
-`schema/migrations` in the checkout, so development tests do not depend on the
-working directory. The compiled default is the configured installation prefix;
-use the environment override when relocating an installation.
+with the earlier `0001.sql`. CMake embeds the checked-in SQL files in the
+extension binary at build time, ordered by their numeric filenames. Adding a
+migration therefore requires rebuilding the extension. Community installs only
+need that binary; they do not need a separate migration directory. For local
+experiments, set `DUCKDB_AGENT_RUNS_MIGRATIONS` before starting DuckDB to use
+SQL files from a directory instead of the bundled versions.
 
 Open a file-backed DuckDB database to persist the ledger and metadata together
 in that one file. The migration connection shares the extension's database
