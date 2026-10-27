@@ -1,10 +1,126 @@
 # agent_runs
 
-DuckDB extension for ATIF trajectory conversion and agent-run metadata ingestion.
-The pinned `external/duckdb_lance_conversion` submodule supplies the ATIF reader,
-media embedding, and Lance writer. `LOAD agent_runs` loads the bundled dependency.
+`agent_runs` imports ATIF (Agent Trajectory Interchange Format) trajectories
+into Lance and stores Harbor job/trial metadata in DuckDB. It provides two SQL
+calls:
 
-## Build
+- `ingest_agent_run` reads a Harbor job, converts each trial's trajectory, and
+  inserts the job and trials into `agent_runs.jobs` and `agent_runs.trials`.
+- `import_agent_trajectory` converts one ATIF trajectory to a Lance dataset
+  without inserting job/trial metadata.
+
+## Ingest a Harbor job
+
+The job directory needs `config.json` and `result.json`. Each trial needs its
+own metadata pair and `agent/trajectory.json`. Trials can be directly under
+the job directory, as shown here, or under a `trials/` directory.
+
+```text
+my-job/
+├── config.json
+├── result.json
+└── task__abc/
+    ├── config.json
+    ├── result.json
+    └── agent/
+        └── trajectory.json
+```
+
+Open a file-backed DuckDB database if you want to keep the metadata between
+sessions. Loading the extension creates or updates its tables in that database.
+When loading a build from this checkout, set `DUCKDB_AGENT_RUNS_MIGRATIONS` to
+the absolute path of `schema/migrations` before starting DuckDB.
+
+```sh
+export DUCKDB_AGENT_RUNS_MIGRATIONS="$PWD/schema/migrations"
+duckdb agent_runs.duckdb
+```
+
+```sql
+LOAD agent_runs;
+
+CALL ingest_agent_run(
+    '/data/jobs/my-job',
+    owner_email := 'agent@example.com',
+    trajectory_destination := '/data/datasets/my-job'
+);
+```
+
+The call returns `job_id`, `job_name`, and `trials_ingested`. It writes each
+trial's Lance dataset to `<trajectory_destination>/<trial UUID>.lance` and saves that URI in
+`agent_runs.trials.dataset_uri`. Conversion of different trials runs in
+parallel. You can query the persisted metadata immediately:
+
+```sql
+SELECT job_id, job_name, owner_email FROM agent_runs.jobs;
+SELECT trial_id, trial_name, dataset_uri FROM agent_runs.trials;
+SELECT job_name, config.n_attempts, result.stats.n_completed_trials
+FROM agent_runs.jobs;
+```
+
+Known metadata fields remain typed, including nested fields like those in
+the last query.
+Use a Lance reader to query the datasets at those URIs; `agent_runs` writes
+Lance datasets but does not provide a Lance dataset reader.
+
+`owner_email` is required. `trajectory_destination` is required when the job
+has trials; a job without trials can omit it. `format := 'harbor'` is optional
+and is the only supported format today. Job and trial UUIDs come from the
+Harbor result files. Existing rows are not replaced, so importing the same
+job again fails on its unique ID. The extension reads metadata and trajectories;
+it does not copy other job files, logs, or artifacts.
+
+## Import one ATIF trajectory
+
+Use this call when you only need a Lance dataset:
+
+```sql
+LOAD agent_runs;
+
+CALL import_agent_trajectory(
+    '/data/trial/agent/trajectory.json',
+    trajectory_destination := '/data/datasets/trial.lance'
+);
+```
+
+`trajectory_destination` names the complete `.lance` dataset, not a parent
+directory. The call returns `trajectories_converted`; it does not add a job or
+trial row. ATIF input can be JSON, JSONL, or gzip-compressed, from local
+storage, S3, or HTTP(S). Relative image and audio references are resolved
+beside the trajectory and embedded in Lance. `text_compression` defaults to
+`'lz4'`; `'zstd'` and `'none'` are also accepted.
+
+## Storage and failures
+
+For S3 sources or destinations, configure the appropriate DuckDB secret and
+load `httpfs` when required. A Harbor job source may be a local directory or
+an S3 prefix. The Lance datasets live outside the DuckDB database file.
+
+If a trial conversion fails during `ingest_agent_run`, its job/trial inserts
+are rolled back. By default, the extension also waits for started conversions
+to stop and removes files under this call's dataset destinations, even if no
+valid Lance dataset was committed. With cleanup enabled, it refuses to start
+when a destination already contains files, so cleanup cannot remove a
+preexisting dataset. A
+deletion error is returned to the caller; datasets not yet deleted may remain.
+
+If the destination credentials lack delete permission, disable cleanup before
+ingestion:
+
+```sql
+SET agent_runs_failure_cleanup = false;
+```
+
+With cleanup disabled, a failed call can leave partial datasets. This setting
+applies to `ingest_agent_run`, not to standalone `import_agent_trajectory`.
+An explicit `ROLLBACK` after a successful ingestion rolls back its DuckDB
+metadata inserts, but does not delete the external Lance datasets.
+
+## Installation and development
+
+The extension targets DuckDB v2.0.0 and must be loaded with the version it was
+built against. Build from the checkout with CMake, C++17, Cargo, `protoc`, and
+Python 3.10 or newer for the test runner:
 
 ```sh
 git submodule update --init --recursive
@@ -12,99 +128,16 @@ GEN=ninja make release
 make test
 ```
 
-Requires CMake, C++17, Cargo, and protoc. DuckDB is pinned to v2.0.0; loadable
-extensions require the exact DuckDB version they were built against.
+The schema migration SQL files are runtime resources. Install them alongside
+the extension, or set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their directory before
+loading it. Repository Make targets use `schema/migrations` automatically.
+If you have built the extension but not installed it, load the
+`agent_runs.duckdb_extension` file from `build/release/extension/agent_runs/`
+by path instead of using `LOAD agent_runs`.
+Loading the extension checks and applies pending migrations in its fixed
+`agent_runs` schema. See [schema design and evolution](schema/README.md) for
+the table layout and migration policy.
 
-## ATIF to Lance
-
-Convert a trajectory with a single function call:
-
-```sql
-LOAD agent_runs;
-
-CALL import_agent_trajectory(
-    '/data/trial/agent/trajectory.json',
-    trajectory_destination := 's3://bucket/trajectories/job-id/trial-id.lance',
-    text_compression := 'lz4'
-);
-```
-
-`trajectory_destination` is the exact Lance dataset URI. `text_compression`
-defaults to `lz4`; `zstd` and `none` are also supported. The call returns
-`trajectories_converted` and handles ATIF reading, media embedding, and Lance
-writing internally using the bundled conversion dependency.
-
-Sources may be JSON/JSONL or gzip, on local storage, S3, or HTTP(S). Relative
-image/audio references resolve beside the trajectory and their bytes are
-embedded in the dataset. Configure DuckDB S3 secrets before using S3 sources
-or destinations.
-
-This extension does not copy job directories or upload arbitrary artifacts.
-
-## Job/trial metadata ingestion
-
-Loading the extension initializes or upgrades the metadata catalog before ingestion:
-
-```sql
-LOAD agent_runs;
-
-CALL ingest_agent_run(
-    '/data/jobs/my-job',
-    format := 'harbor',
-    owner_email := 'agent@example.com',
-    trajectory_destination := 's3://bucket/trajectories/job-id'
-);
-```
-
-The call reads the job's `config.json` and `result.json`, then the same metadata
-pair and `agent/trajectory.json` from each direct trial directory or
-`trials/<trial>/` directory. Sources
-can also be S3 prefixes when `httpfs` and the appropriate secret are available.
-The `agent_runs.jobs` and `agent_runs.trials` tables preserve nested typed
-config/result STRUCTs and dynamic VARIANT fields. Their namespace is fixed in
-the database instance's default catalog; the caller's current catalog and search
-path do not redirect ingestion. See `schema/README.md` for the schema design.
-
-Job and trial UUIDs come from Harbor's result documents. `owner_email` is required.
-For jobs with trials, `trajectory_destination` is required. The call converts each
-trial's ATIF trajectory to `<trajectory_destination>/<trial UUID>.lance` in
-parallel using DuckDB's task executor, then records that path in
-`agent_runs.trials.dataset_uri`. Jobs without trials may omit it.
-
-The call returns `job_id`, `job_name`, and `trials_ingested`. Inserts use the
-caller's transaction, including explicit `BEGIN`/`ROLLBACK`. Duplicate IDs,
-constraint violations, malformed metadata, or conversion failures fail the call
-and roll back its inserts. Existing records are never replaced. Lance datasets
-are external files and are not removed by a later explicit DuckDB transaction rollback.
-If a conversion fails during the call, the extension waits for all started tasks
-and removes datasets this call created. This cleanup is enabled by default; set
-`agent_runs_failure_cleanup = false` when the destination credentials lack delete
-permission. In that mode, a failed call may leave partial datasets for the caller
-to clean up.
-
-## Tests
-
-`make test` runs native SQLLogicTests in `test/sql/` against repository-owned
-`testdata/` fixtures, including text, gzip, and image/audio trajectories.
-Tests call our conversion API and use a separate, pinned `lance` test dependency
-to read back and compare the stored values and media bytes with those fixtures.
-The reader is built by default; use `BUILD_EXTENSION_TEST_DEPS=none` for builds
-without test dependencies. There is no Python integration test runner.
-
-Use `make format-all` to format C++, SQL tests, and CMake files.
-
-## Catalog schema
-
-`LOAD agent_runs` initializes or upgrades the job/trial metadata catalog. It
-uses a fixed `agent_runs` schema for its tables, types, macros and version
-records. It compares the largest recorded schema version with the latest SQL migration file
-and applies only pending versions in one transaction. Existing rows are
-preserved; an already up-to-date catalog needs no schema writes. A newer,
-unsupported catalog version fails extension loading.
-
-See [schema design and evolution](schema/README.md) for the typed tables,
-ml-infra compatibility and upgrade policy.
-
-SQL migrations are runtime resources. Install them with the extension using
-CMake, or set `DUCKDB_AGENT_RUNS_MIGRATIONS` to their directory before loading.
-Repository Make targets select the checkout's `schema/migrations` automatically.
+`make test` runs SQLLogicTests against the repository's `testdata/` fixtures.
+The tests use a separate Lance reader to verify the written datasets. Use
+`make format-all` to format the C++, SQL tests, and CMake files.
