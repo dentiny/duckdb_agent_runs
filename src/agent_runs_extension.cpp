@@ -2,12 +2,14 @@
 #include "agent_runs_extension.hpp"
 #include "duckdb/main/database.hpp"
 #include "lance_conversion_extension.hpp"
+#include "trajectory_conversion.hpp"
 
 namespace duckdb {
 namespace {
 void LoadInternal(ExtensionLoader &loader) {
 	DuckDB db(loader.GetDatabaseInstance());
 	db.LoadStaticExtension<LanceConversionExtension>();
+	RegisterTrajectoryConversion(loader);
 	loader.SetDescription("Read ATIF trajectories and convert them to Lance datasets.");
 }
 } // namespace

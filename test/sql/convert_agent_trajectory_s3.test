@@ -1,0 +1,34 @@
+# name: test/sql/convert_agent_trajectory_s3.test
+# description: Convert ATIF to S3 through the agent_runs public function
+# group: [sql]
+
+require-env AGENT_RUNS_S3_ENDPOINT
+
+require-env AGENT_RUNS_S3_BUCKET
+
+require-env AGENT_RUNS_S3_KEY_ID
+
+require-env AGENT_RUNS_S3_SECRET
+
+require agent_runs
+
+require httpfs
+
+statement ok
+CREATE SECRET atif_test (TYPE S3, KEY_ID '{AGENT_RUNS_S3_KEY_ID}',
+    SECRET '{AGENT_RUNS_S3_SECRET}', REGION 'us-east-1', ENDPOINT '{AGENT_RUNS_S3_ENDPOINT}',
+    URL_STYLE 'path', USE_SSL false, SCOPE 's3://{AGENT_RUNS_S3_BUCKET}/');
+
+statement ok
+SET VARIABLE dataset_uri = 's3://{AGENT_RUNS_S3_BUCKET}/atif-' || uuid()::VARCHAR || '.lance';
+
+query I
+CALL convert_agent_trajectory('testdata/atif/multimodal/trajectory.json',
+    trajectory_destination := getvariable('dataset_uri'));
+----
+1
+
+query I
+SELECT count(*) > 0 FROM glob(getvariable('dataset_uri') || '/_versions/*.manifest');
+----
+true

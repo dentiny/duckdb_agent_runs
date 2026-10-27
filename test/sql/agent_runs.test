@@ -1,15 +1,10 @@
 # name: test/sql/agent_runs.test
-# description: bundled conversion dependency
+# description: agent_runs exposes its public conversion function
 # group: [sql]
 
 require agent_runs
 
 query I
-SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'lance_conversion' AND loaded;
+SELECT count(*) FROM duckdb_functions() WHERE function_name = 'convert_agent_trajectory';
 ----
 1
-
-query T
-SELECT trajectory_id FROM read_atif('testdata/atif/text/trajectory.json');
-----
-single

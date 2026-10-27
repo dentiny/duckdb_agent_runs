@@ -17,25 +17,27 @@ extensions require the exact DuckDB version they were built against.
 
 ## ATIF to Lance
 
-Use the bundled conversion extension directly:
+Convert a trajectory with a single function call:
 
 ```sql
 LOAD agent_runs;
 
-COPY (SELECT * FROM read_atif('/data/trial/agent/trajectory.json'))
-TO 's3://bucket/trajectories/job-id/trial-id.lance'
-(FORMAT LANCE, STORAGE_VERSION '2.2', COLUMN_COMPRESSION {
-    'steps.message.text': 'lz4',
-    'steps.observation.results.content.text': 'lz4'
-});
+CALL convert_agent_trajectory(
+    '/data/trial/agent/trajectory.json',
+    trajectory_destination := 's3://bucket/trajectories/job-id/trial-id.lance',
+    text_compression := 'lz4'
+);
 ```
 
-The destination is the exact dataset URI supplied to `COPY`. Text codecs are
-`lz4`, `zstd`, and `none`. The reader accepts JSON/JSONL and gzip, with local,
-S3, or HTTP(S) sources. Relative image/audio references resolve beside the
-trajectory and their bytes are embedded in Lance. Configure DuckDB S3 secrets
-before reading or writing S3 datasets. Other dataset formats can use the bundled
-conversion extension's readers and Lance writer directly as well.
+`trajectory_destination` is the exact Lance dataset URI. `text_compression`
+defaults to `lz4`; `zstd` and `none` are also supported. The call returns
+`trajectories_converted` and handles ATIF reading, media embedding, and Lance
+writing internally using the bundled conversion dependency.
+
+Sources may be JSON/JSONL or gzip, on local storage, S3, or HTTP(S). Relative
+image/audio references resolve beside the trajectory and their bytes are
+embedded in the dataset. Configure DuckDB S3 secrets before using S3 sources
+or destinations.
 
 This extension does not copy job directories or upload arbitrary artifacts.
 Job/trial ingestion into typed DuckDB tables is a separate PR.
