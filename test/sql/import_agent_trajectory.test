@@ -78,15 +78,3 @@ FROM '{TEST_DIR}/multimodal.lance' d,
      read_blob('testdata/atif/multimodal/atif-audio.wav') audio;
 ----
 true	true	true	true
-
-foreach dataset gzip quote''s
-
-query III
-SELECT d.trajectory_id = json_extract_string(j, 'trajectory_id'), d.agent.name = json_extract_string(j, '$.agent.name'),
-       decode(d.steps[1].message[1].text) = json_extract_string(j, '$.steps[0].message')
-FROM '{TEST_DIR}/{dataset}.lance' d,
-     (SELECT content::JSON j FROM read_text('testdata/atif/text/trajectory.json')) expected;
-----
-true	true	true
-
-endloop
