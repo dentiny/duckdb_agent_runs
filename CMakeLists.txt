@@ -30,9 +30,8 @@ foreach(migration ${migration_files})
     APPEND AGENT_RUNS_MIGRATIONS
     "\t{${version}, R\"agent_runs_sql(${migration_sql})agent_runs_sql\"},\n")
 endforeach()
-set(AGENT_RUNS_SCHEMA_VERSION ${version})
-configure_file(src/schema_migrations.hpp.in agent_runs_schema_migrations.hpp
-               @ONLY)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/agent_runs_schema_migrations.inc"
+     "${AGENT_RUNS_MIGRATIONS}")
 
 set(EXTENSION_SOURCES src/agent_runs_extension.cpp src/schema_migration.cpp
                       src/trajectory_conversion.cpp)

@@ -1,4 +1,4 @@
-CREATE TYPE retry_config AS STRUCT (
+CREATE TYPE agent_runs.retry_config AS STRUCT (
     "preserve_scored_agent_failures"   BOOLEAN,
     "scored_agent_failure_exceptions"  VARCHAR[],
     "max_retries"                      BIGINT,
@@ -10,34 +10,34 @@ CREATE TYPE retry_config AS STRUCT (
     "retry_scored_trials"              BOOLEAN
 );
 
-CREATE TYPE tpu_spec AS STRUCT (
+CREATE TYPE agent_runs.tpu_spec AS STRUCT (
     "type"      VARCHAR,
     "topology"  VARCHAR
 );
 
-CREATE TYPE service_volume_bind AS STRUCT (
+CREATE TYPE agent_runs.service_volume_bind AS STRUCT (
     "create_host_path"  BOOLEAN
 );
 
-CREATE TYPE service_volume_volume AS STRUCT (
+CREATE TYPE agent_runs.service_volume_volume AS STRUCT (
     "subpath"  VARCHAR
 );
 
-CREATE TYPE service_volume_image AS STRUCT (
+CREATE TYPE agent_runs.service_volume_image AS STRUCT (
     "subpath"  VARCHAR
 );
 
-CREATE TYPE service_volume_config AS STRUCT (
+CREATE TYPE agent_runs.service_volume_config AS STRUCT (
     "type"       VARCHAR,
     "source"     VARCHAR,
     "target"     VARCHAR,
     "read_only"  BOOLEAN,
-    "bind"       service_volume_bind,
-    "volume"     service_volume_volume,
-    "image"      service_volume_image
+    "bind"       agent_runs.service_volume_bind,
+    "volume"     agent_runs.service_volume_volume,
+    "image"      agent_runs.service_volume_image
 );
 
-CREATE TYPE environment_config AS STRUCT (
+CREATE TYPE agent_runs.environment_config AS STRUCT (
     "type"                       VARCHAR,
     "import_path"                VARCHAR,
     "force_build"                BOOLEAN,
@@ -48,15 +48,15 @@ CREATE TYPE environment_config AS STRUCT (
     "override_memory_mb"         BIGINT,
     "override_storage_mb"        BIGINT,
     "override_gpus"              BIGINT,
-    "override_tpu"               tpu_spec,
-    "mounts"                     service_volume_config[],
+    "override_tpu"               agent_runs.tpu_spec,
+    "mounts"                     agent_runs.service_volume_config[],
     "extra_docker_compose"       VARCHAR[],
     "env"                        MAP(VARCHAR, VARCHAR),
     "kwargs"                     MAP(VARCHAR, VARIANT),
     "extra_allowed_hosts"        VARCHAR[]
 );
 
-CREATE TYPE verifier_config AS STRUCT (
+CREATE TYPE agent_runs.verifier_config AS STRUCT (
     "max_retries"                 BIGINT,
     "transport_retry_budget_sec"  DOUBLE,
     "n_concurrent"                BIGINT,
@@ -72,32 +72,32 @@ CREATE TYPE verifier_config AS STRUCT (
     "allow_detached"              BOOLEAN
 );
 
-CREATE TYPE metric_config AS STRUCT (
+CREATE TYPE agent_runs.metric_config AS STRUCT (
     "type"    VARCHAR,
     "kwargs"  MAP(VARCHAR, VARIANT)
 );
 
-CREATE TYPE egress_proxy_endpoint AS STRUCT (
+CREATE TYPE agent_runs.egress_proxy_endpoint AS STRUCT (
     "address"     VARCHAR,
     "admin_port"  BIGINT,
     "ca_pem"      VARCHAR,
     "token_env"   VARCHAR
 );
 
-CREATE TYPE pinned_host AS STRUCT (
+CREATE TYPE agent_runs.pinned_host AS STRUCT (
     "host"     VARCHAR,
     "address"  VARCHAR
 );
 
-CREATE TYPE egress_job_extras AS STRUCT (
-    "proxy"          egress_proxy_endpoint,
+CREATE TYPE agent_runs.egress_job_extras AS STRUCT (
+    "proxy"          agent_runs.egress_proxy_endpoint,
     "hosts"          VARCHAR[],
-    "pinned"         pinned_host[],
+    "pinned"         agent_runs.pinned_host[],
     "routes"         MAP(VARCHAR, VARCHAR[]),
     "policies_toml"  VARCHAR
 );
 
-CREATE TYPE mcp_server_config AS STRUCT (
+CREATE TYPE agent_runs.mcp_server_config AS STRUCT (
     "name"                  VARCHAR,
     "transport"             VARCHAR,
     "url"                   VARCHAR,
@@ -106,7 +106,7 @@ CREATE TYPE mcp_server_config AS STRUCT (
     "bearer_token_env_var"  VARCHAR
 );
 
-CREATE TYPE agent_config AS STRUCT (
+CREATE TYPE agent_runs.agent_config AS STRUCT (
     "name"                        VARCHAR,
     "import_path"                 VARCHAR,
     "model_name"                  VARCHAR,
@@ -121,16 +121,16 @@ CREATE TYPE agent_config AS STRUCT (
     "resume_trajectory"           BOOLEAN,
     "load_trajectory"             VARCHAR,
     "extra_allowed_hosts"         VARCHAR[],
-    "egress_job"                  egress_job_extras,
+    "egress_job"                  agent_runs.egress_job_extras,
     "include_logs"                VARCHAR[],
     "exclude_logs"                VARCHAR[],
     "durable_cache_logs"          VARCHAR[],
     "kwargs"                      MAP(VARCHAR, VARIANT),
     "env"                         MAP(VARCHAR, VARCHAR),
-    "mcp_servers"                 mcp_server_config[]
+    "mcp_servers"                 agent_runs.mcp_server_config[]
 );
 
-CREATE TYPE dataset_config AS STRUCT (
+CREATE TYPE agent_runs.dataset_config AS STRUCT (
     "path"                VARCHAR,
     "name"                VARCHAR,
     "version"             VARCHAR,
@@ -145,47 +145,47 @@ CREATE TYPE dataset_config AS STRUCT (
     "n_tasks"             BIGINT
 );
 
-CREATE TYPE runtime_addon AS STRUCT (
+CREATE TYPE agent_runs.runtime_addon AS STRUCT (
     "project"  VARCHAR,
     "name"     VARCHAR,
     "version"  VARCHAR
 );
 
-CREATE TYPE root_gate AS STRUCT (
+CREATE TYPE agent_runs.root_gate AS STRUCT (
     "name"   VARCHAR,
     "check"  VARCHAR
 );
 
-CREATE TYPE proxy_release AS STRUCT (
+CREATE TYPE agent_runs.proxy_release AS STRUCT (
     "version"  VARCHAR,
     "digest"   VARCHAR
 );
 
-CREATE TYPE network_allow AS STRUCT (
+CREATE TYPE agent_runs.network_allow AS STRUCT (
     "host"     VARCHAR,
     "address"  VARCHAR
 );
 
-CREATE TYPE dataset_network AS STRUCT (
+CREATE TYPE agent_runs.dataset_network AS STRUCT (
     "egress"         VARCHAR,
-    "proxy"          proxy_release,
+    "proxy"          agent_runs.proxy_release,
     "profile"        VARCHAR,
-    "allow"          network_allow[],
+    "allow"          agent_runs.network_allow[],
     "local_mirrors"  VARCHAR[]
 );
 
-CREATE TYPE dataset_runtime_config AS STRUCT (
+CREATE TYPE agent_runs.dataset_runtime_config AS STRUCT (
     "source"       VARCHAR,
     "version"      VARCHAR,
     "environment"  VARIANT,
-    "addons"       runtime_addon[],
-    "root_gates"   root_gate[],
-    "network"      dataset_network
+    "addons"       agent_runs.runtime_addon[],
+    "root_gates"   agent_runs.root_gate[],
+    "network"      agent_runs.dataset_network
 );
 
-CREATE TYPE task_config AS STRUCT (
-    "dataset_runtime"  dataset_runtime_config,
-    "dataset_network"  dataset_network,
+CREATE TYPE agent_runs.task_config AS STRUCT (
+    "dataset_runtime"  agent_runs.dataset_runtime_config,
+    "dataset_network"  agent_runs.dataset_network,
     "dataset_ref"      VARCHAR,
     "path"             VARCHAR,
     "git_url"          VARCHAR,
@@ -197,14 +197,14 @@ CREATE TYPE task_config AS STRUCT (
     "source"           VARCHAR
 );
 
-CREATE TYPE source_job_config AS STRUCT (
+CREATE TYPE agent_runs.source_job_config AS STRUCT (
     "action"  VARCHAR,
     "type"    VARCHAR,
     "job_id"  UUID,
     "path"    VARCHAR
 );
 
-CREATE TYPE job_config AS STRUCT (
+CREATE TYPE agent_runs.job_config AS STRUCT (
     "jobs_dir"                              VARCHAR,
     "n_attempts"                            BIGINT,
     "install_only"                          BOOLEAN,
@@ -217,20 +217,20 @@ CREATE TYPE job_config AS STRUCT (
     "n_concurrent_trials"                   BIGINT,
     "n_concurrent_prepare"                  BIGINT,
     "quiet"                                 BOOLEAN,
-    "retry"                                 retry_config,
-    "environment"                           environment_config,
-    "verifier"                              verifier_config,
-    "metrics"                               metric_config[],
-    "agents"                                agent_config[],
-    "datasets"                              dataset_config[],
-    "tasks"                                 task_config[],
+    "retry"                                 agent_runs.retry_config,
+    "environment"                           agent_runs.environment_config,
+    "verifier"                              agent_runs.verifier_config,
+    "metrics"                               agent_runs.metric_config[],
+    "agents"                                agent_runs.agent_config[],
+    "datasets"                              agent_runs.dataset_config[],
+    "tasks"                                 agent_runs.task_config[],
     "artifacts"                             VARIANT[],
     "metadata"                              MAP(VARCHAR, VARIANT),
     "extra_instruction_paths"               VARCHAR[],
-    "source_jobs"                           source_job_config[]
+    "source_jobs"                           agent_runs.source_job_config[]
 );
 
-CREATE TYPE agent_dataset_stats AS STRUCT (
+CREATE TYPE agent_runs.agent_dataset_stats AS STRUCT (
     "n_trials"         BIGINT,
     "n_errors"         BIGINT,
     "metrics"          MAP(VARCHAR, VARIANT)[],
@@ -239,37 +239,37 @@ CREATE TYPE agent_dataset_stats AS STRUCT (
     "exception_stats"  MAP(VARCHAR, VARCHAR[])
 );
 
-CREATE TYPE job_stats AS STRUCT (
+CREATE TYPE agent_runs.job_stats AS STRUCT (
     "n_completed_trials"  BIGINT,
     "n_errored_trials"    BIGINT,
     "n_running_trials"    BIGINT,
     "n_pending_trials"    BIGINT,
     "n_cancelled_trials"  BIGINT,
     "n_retries"           BIGINT,
-    "evals"               MAP(VARCHAR, agent_dataset_stats),
+    "evals"               MAP(VARCHAR, agent_runs.agent_dataset_stats),
     "n_input_tokens"      BIGINT,
     "n_cache_tokens"      BIGINT,
     "n_output_tokens"     BIGINT,
     "cost_usd"            DOUBLE
 );
 
-CREATE TYPE job_result AS STRUCT (
+CREATE TYPE agent_runs.job_result AS STRUCT (
     "started_at"      TIMESTAMPTZ,
     "updated_at"      TIMESTAMPTZ,
     "finished_at"     TIMESTAMPTZ,
     "n_total_trials"  BIGINT,
-    "stats"           job_stats
+    "stats"           agent_runs.job_stats
 );
 
-CREATE TYPE source_trial_config AS STRUCT (
+CREATE TYPE agent_runs.source_trial_config AS STRUCT (
     "action"    VARCHAR,
     "type"      VARCHAR,
     "trial_id"  UUID,
     "path"      VARCHAR
 );
 
-CREATE TYPE trial_config AS STRUCT (
-    "task"                                  task_config,
+CREATE TYPE agent_runs.trial_config AS STRUCT (
+    "task"                                  agent_runs.task_config,
     "trials_dir"                            VARCHAR,
     "install_only"                          BOOLEAN,
     "timeout_multiplier"                    DOUBLE,
@@ -277,33 +277,33 @@ CREATE TYPE trial_config AS STRUCT (
     "verifier_timeout_multiplier"           DOUBLE,
     "agent_setup_timeout_multiplier"        DOUBLE,
     "environment_build_timeout_multiplier"  DOUBLE,
-    "agent"                                 agent_config,
-    "environment"                           environment_config,
-    "verifier"                              verifier_config,
+    "agent"                                 agent_runs.agent_config,
+    "environment"                           agent_runs.environment_config,
+    "verifier"                              agent_runs.verifier_config,
     "artifacts"                             VARIANT[],
     "extra_instruction_paths"               VARCHAR[],
-    "source_trial"                          source_trial_config
+    "source_trial"                          agent_runs.source_trial_config
 );
 
-CREATE TYPE model_info AS STRUCT (
+CREATE TYPE agent_runs.model_info AS STRUCT (
     "name"      VARCHAR,
     "provider"  VARCHAR
 );
 
-CREATE TYPE agent_info AS STRUCT (
+CREATE TYPE agent_runs.agent_info AS STRUCT (
     "name"        VARCHAR,
     "version"     VARCHAR,
-    "model_info"  model_info
+    "model_info"  agent_runs.model_info
 );
 
-CREATE TYPE rollout_detail AS STRUCT (
+CREATE TYPE agent_runs.rollout_detail AS STRUCT (
     "prompt_token_ids"      BIGINT[][],
     "completion_token_ids"  BIGINT[][],
     "logprobs"              DOUBLE[][],
     "extra"                 MAP(VARCHAR, VARIANT[])
 );
 
-CREATE TYPE execution_error AS STRUCT (
+CREATE TYPE agent_runs.execution_error AS STRUCT (
     "schema_version"  VARCHAR,
     "error_id"        VARCHAR,
     "code"            VARCHAR,
@@ -317,60 +317,60 @@ CREATE TYPE execution_error AS STRUCT (
     "evidence"        MAP(VARCHAR, VARIANT)
 );
 
-CREATE TYPE agent_context AS STRUCT (
+CREATE TYPE agent_runs.agent_context AS STRUCT (
     "n_input_tokens"    BIGINT,
     "n_cache_tokens"    BIGINT,
     "n_output_tokens"   BIGINT,
     "cost_usd"          DOUBLE,
-    "rollout_details"   rollout_detail[],
+    "rollout_details"   agent_runs.rollout_detail[],
     "metadata"          MAP(VARCHAR, VARIANT),
-    "execution_errors"  execution_error[]
+    "execution_errors"  agent_runs.execution_error[]
 );
 
-CREATE TYPE verifier_result AS STRUCT (
+CREATE TYPE agent_runs.verifier_result AS STRUCT (
     "rewards"  MAP(VARCHAR, VARIANT)
 );
 
-CREATE TYPE exception_info AS STRUCT (
+CREATE TYPE agent_runs.exception_info AS STRUCT (
     "exception_type"       VARCHAR,
     "exception_message"    VARCHAR,
     "exception_traceback"  VARCHAR,
     "occurred_at"          TIMESTAMPTZ
 );
 
-CREATE TYPE timing_info AS STRUCT (
+CREATE TYPE agent_runs.timing_info AS STRUCT (
     "started_at"   TIMESTAMPTZ,
     "finished_at"  TIMESTAMPTZ
 );
 
-CREATE TYPE step_result AS STRUCT (
+CREATE TYPE agent_runs.step_result AS STRUCT (
     "step_name"        VARCHAR,
-    "agent_result"     agent_context,
-    "verifier_result"  verifier_result,
-    "exception_info"   exception_info,
-    "agent_execution"  timing_info,
-    "verifier"         timing_info
+    "agent_result"     agent_runs.agent_context,
+    "verifier_result"  agent_runs.verifier_result,
+    "exception_info"   agent_runs.exception_info,
+    "agent_execution"  agent_runs.timing_info,
+    "verifier"         agent_runs.timing_info
 );
 
-CREATE TYPE trial_result AS STRUCT (
+CREATE TYPE agent_runs.trial_result AS STRUCT (
     "task_name"                  VARCHAR,
     "trial_uri"                  VARCHAR,
     "task_id"                    VARIANT,
     "source"                     VARCHAR,
     "task_checksum"              VARCHAR,
     "trial_lock_digest"          VARCHAR,
-    "agent_info"                 agent_info,
-    "agent_result"               agent_context,
-    "verifier_result"            verifier_result,
+    "agent_info"                 agent_runs.agent_info,
+    "agent_result"               agent_runs.agent_context,
+    "verifier_result"            agent_runs.verifier_result,
     "verifier_environment_mode"  VARCHAR,
-    "exception_info"             exception_info,
+    "exception_info"             agent_runs.exception_info,
     "started_at"                 TIMESTAMPTZ,
     "finished_at"                TIMESTAMPTZ,
-    "environment_setup"          timing_info,
-    "agent_setup"                timing_info,
-    "agent_execution"            timing_info,
-    "verifier"                   timing_info,
-    "step_results"               step_result[],
+    "environment_setup"          agent_runs.timing_info,
+    "agent_setup"                agent_runs.timing_info,
+    "agent_execution"            agent_runs.timing_info,
+    "verifier"                   agent_runs.timing_info,
+    "step_results"               agent_runs.step_result[],
     "surface_lint"               MAP(VARCHAR, VARIANT),
     "teardown_incomplete"        BOOLEAN,
     "teardown_errors"            VARCHAR[]
@@ -380,12 +380,12 @@ CREATE TYPE trial_result AS STRUCT (
 -- Validate native defaults, nested collection members and model validators with
 -- the producer's Harbor models before projecting into these normalized STRUCTs.
 -- struct_extract is needed here: dotted STRUCT access is not bound in CHECKs.
-CREATE TABLE jobs (
+CREATE TABLE agent_runs.jobs (
     job_id       UUID PRIMARY KEY,
     job_name     VARCHAR NOT NULL UNIQUE CHECK (regexp_matches(job_name, '\S')),
     owner_email  VARCHAR NOT NULL CHECK (regexp_matches(owner_email, '\S')),
-    config       job_config NOT NULL,
-    result       job_result NOT NULL,
+    config       agent_runs.job_config NOT NULL,
+    result       agent_runs.job_result NOT NULL,
     CHECK (
         struct_extract(config, 'jobs_dir') IS NOT NULL
         AND struct_extract(config, 'n_attempts') IS NOT NULL
@@ -418,12 +418,12 @@ CREATE TABLE jobs (
     )
 );
 
-CREATE TABLE trials (
+CREATE TABLE agent_runs.trials (
     trial_id     UUID PRIMARY KEY,
-    job_id       UUID NOT NULL REFERENCES jobs(job_id),
+    job_id       UUID NOT NULL REFERENCES agent_runs.jobs(job_id),
     trial_name   VARCHAR NOT NULL CHECK (regexp_matches(trial_name, '\S')),
-    config       trial_config NOT NULL,
-    result       trial_result NOT NULL,
+    config       agent_runs.trial_config NOT NULL,
+    result       agent_runs.trial_result NOT NULL,
     dataset_uri  VARCHAR NOT NULL CHECK (regexp_matches(dataset_uri, '\S')),
     CHECK (
         struct_extract(config, 'task') IS NOT NULL
@@ -450,22 +450,22 @@ CREATE TABLE trials (
     )
 );
 
-CREATE MACRO trial_agent_name(config, result) AS
+CREATE MACRO agent_runs.trial_agent_name(config, result) AS
     CASE WHEN nullif(config.agent.import_path, '') IS NOT NULL
          THEN coalesce(nullif(config.agent.name, ''), config.agent.import_path)
          ELSE result.agent_info.name END;
 
-CREATE INDEX jobs_owner_email_idx ON jobs (owner_email);
-CREATE INDEX jobs_started_at_idx ON jobs ((result.started_at));
+CREATE INDEX jobs_owner_email_idx ON agent_runs.jobs (owner_email);
+CREATE INDEX jobs_started_at_idx ON agent_runs.jobs ((result.started_at));
 
-CREATE INDEX trials_task_name_idx ON trials ((result.task_name));
-CREATE INDEX trials_agent_name_idx ON trials ((trial_agent_name(config, result)));
-CREATE INDEX trials_model_name_idx ON trials ((result.agent_info.model_info.name));
-CREATE INDEX trials_started_at_idx ON trials ((result.started_at));
-CREATE INDEX trials_source_idx ON trials ((result.source));
-CREATE INDEX trials_model_provider_idx ON trials ((result.agent_info.model_info.provider));
+CREATE INDEX trials_task_name_idx ON agent_runs.trials ((result.task_name));
+CREATE INDEX trials_agent_name_idx ON agent_runs.trials ((agent_runs.trial_agent_name(config, result)));
+CREATE INDEX trials_model_name_idx ON agent_runs.trials ((result.agent_info.model_info.name));
+CREATE INDEX trials_started_at_idx ON agent_runs.trials ((result.started_at));
+CREATE INDEX trials_source_idx ON agent_runs.trials ((result.source));
+CREATE INDEX trials_model_provider_idx ON agent_runs.trials ((result.agent_info.model_info.provider));
 
-CREATE MACRO job_summaries(relation) AS TABLE
+CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
 SELECT
     job_id, job_name, owner_email,
     result.started_at AS started_at,
@@ -496,7 +496,7 @@ SELECT
     ))) AS datasets
 FROM query_table(relation);
 
-CREATE MACRO trial_summaries(relation) AS TABLE
+CREATE MACRO agent_runs.trial_summaries(relation) AS TABLE
 WITH contexts AS (
     SELECT *, CASE WHEN result.agent_result IS NOT NULL
         THEN [result.agent_result]
@@ -514,7 +514,7 @@ SELECT
     t.trial_id, t.job_id, j.job_name, j.owner_email, t.trial_name,
     t.result.task_name AS task_name,
     t.result.source AS source,
-    trial_agent_name(t.config, t.result) AS agent_name,
+    agent_runs.trial_agent_name(t.config, t.result) AS agent_name,
     t.result.agent_info.model_info.provider AS model_provider,
     t.result.agent_info.model_info.name AS model_name,
     t.result.started_at AS started_at,
@@ -532,4 +532,4 @@ SELECT
     t.n_input AS total_input_tokens,
     t.dataset_uri
 FROM totals AS t
-JOIN jobs AS j ON j.job_id = t.job_id;
+JOIN agent_runs.jobs AS j ON j.job_id = t.job_id;

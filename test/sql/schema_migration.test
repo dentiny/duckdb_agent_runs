@@ -6,7 +6,7 @@ require agent_runs
 
 # Requiring the extension initializes the catalog automatically.
 query I
-SELECT version FROM schema_migrations;
+SELECT version FROM agent_runs.schema_migrations;
 ----
 1
 
@@ -14,10 +14,22 @@ SELECT version FROM schema_migrations;
 restart no_extension_load
 
 statement ok
-CREATE TABLE jobs (sentinel INTEGER);
+CREATE TABLE main.jobs (sentinel INTEGER);
 
 statement ok
-INSERT INTO jobs VALUES (42);
+INSERT INTO main.jobs VALUES (99);
+
+statement ok
+CREATE TABLE main.schema_migrations AS SELECT 999 AS version;
+
+statement ok
+CREATE SCHEMA agent_runs;
+
+statement ok
+CREATE TABLE agent_runs.jobs (sentinel INTEGER);
+
+statement ok
+INSERT INTO agent_runs.jobs VALUES (42);
 
 statement error
 LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
@@ -25,30 +37,36 @@ LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 already exists
 
 query II
-SELECT (SELECT count(*) FROM duckdb_types() WHERE type_name = 'job_config'),
-       (SELECT count(*) FROM duckdb_tables() WHERE table_name = 'schema_migrations');
+SELECT (SELECT count(*) FROM duckdb_types() WHERE schema_name = 'agent_runs' AND type_name = 'job_config'),
+       (SELECT count(*) FROM duckdb_tables() WHERE schema_name = 'agent_runs' AND table_name = 'schema_migrations');
 ----
 0	0
 
 query I
-SELECT sentinel FROM jobs;
+SELECT sentinel FROM agent_runs.jobs;
 ----
 42
 
 statement ok
-DROP TABLE jobs;
+DROP TABLE agent_runs.jobs;
 
 # Retrying the load succeeds without cleanup of partially applied migrations.
 statement ok
 LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 
 query I
-SELECT version FROM schema_migrations;
+SELECT version FROM agent_runs.schema_migrations;
 ----
 1
 
+# The unrelated main schema must not be read, migrated or overwritten.
+query II
+SELECT (SELECT version FROM main.schema_migrations), (SELECT sentinel FROM main.jobs);
+----
+999	99
+
 query T
-SELECT column_name FROM duckdb_columns() WHERE table_name = 'jobs' ORDER BY column_index;
+SELECT column_name FROM duckdb_columns() WHERE schema_name = 'agent_runs' AND table_name = 'jobs' ORDER BY column_index;
 ----
 job_id
 job_name
@@ -57,7 +75,7 @@ config
 result
 
 query T
-SELECT column_name FROM duckdb_columns() WHERE table_name = 'trials' ORDER BY column_index;
+SELECT column_name FROM duckdb_columns() WHERE schema_name = 'agent_runs' AND table_name = 'trials' ORDER BY column_index;
 ----
 trial_id
 job_id
@@ -67,39 +85,44 @@ result
 dataset_uri
 
 query I
-SELECT count(*) FROM duckdb_constraints() WHERE table_name = 'trials' AND constraint_type = 'FOREIGN KEY';
+SELECT count(*) FROM duckdb_constraints() WHERE schema_name = 'agent_runs' AND table_name = 'trials' AND constraint_type = 'FOREIGN KEY';
 ----
 1
+
+query I
+SELECT count(*) FROM duckdb_indexes() WHERE schema_name = 'agent_runs';
+----
+8
 
 # Reopening a file-backed database loads the extension and checks versions again.
 load {TEST_DIR}/catalog.db
 
 query I
-SELECT version FROM schema_migrations;
+SELECT version FROM agent_runs.schema_migrations;
 ----
 1
 
 statement ok
-INSERT INTO jobs VALUES (
+INSERT INTO agent_runs.jobs VALUES (
     '00000000-0000-0000-0000-000000000001', 'existing-job', 'owner@example.com',
     {'jobs_dir': '/jobs', 'n_attempts': 1, 'install_only': false, 'timeout_multiplier': 1.0,
      'debug': false, 'n_concurrent_trials': 1, 'quiet': false,
      'retry': {'max_retries': 0}, 'environment': {'type': 'docker'}, 'verifier': {'disable': false},
      'metrics': [], 'agents': [], 'datasets': [], 'tasks': [], 'artifacts': [], 'metadata': map(),
-     'extra_instruction_paths': [], 'source_jobs': []}::job_config,
+     'extra_instruction_paths': [], 'source_jobs': []}::agent_runs.job_config,
     {'started_at': '2026-01-01 00:00:00+00', 'finished_at': '2026-01-01 00:01:00+00',
-     'n_total_trials': 1, 'stats': {'n_completed_trials': 1}}::job_result
+     'n_total_trials': 1, 'stats': {'n_completed_trials': 1}}::agent_runs.job_result
 );
 
 statement ok
-INSERT INTO trials VALUES (
+INSERT INTO agent_runs.trials VALUES (
     '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'existing-trial',
     {'task': {'path': '/tasks/example'}, 'trials_dir': '/jobs/example', 'install_only': false,
      'timeout_multiplier': 1.0, 'agent': {'name': 'example'}, 'environment': {'type': 'docker'},
-     'verifier': {'disable': false}, 'artifacts': [], 'extra_instruction_paths': []}::trial_config,
+     'verifier': {'disable': false}, 'artifacts': [], 'extra_instruction_paths': []}::agent_runs.trial_config,
     {'task_name': 'example', 'trial_uri': '/jobs/example/trial', 'task_id': 42::VARIANT,
      'task_checksum': 'checksum', 'agent_info': {'name': 'example', 'version': '1'},
-     'teardown_incomplete': false}::trial_result,
+     'teardown_incomplete': false}::agent_runs.trial_result,
     's3://bucket/trajectories/example.lance'
 );
 
@@ -109,35 +132,49 @@ CREATE TABLE retained_data AS SELECT 7 AS value;
 restart
 
 query II
-SELECT (SELECT version FROM schema_migrations), (SELECT value FROM retained_data);
+SELECT (SELECT version FROM agent_runs.schema_migrations), (SELECT value FROM retained_data);
 ----
 1	7
 
 query I
-SELECT count(*) FROM duckdb_columns() WHERE table_name = 'jobs' AND column_name = 'config'
+SELECT count(*) FROM duckdb_columns() WHERE schema_name = 'agent_runs' AND table_name = 'jobs' AND column_name = 'config'
     AND data_type LIKE 'STRUCT(%';
 ----
 1
 
 query TTI
-SELECT job_name, owner_email, config.n_attempts FROM jobs;
+SELECT job_name, owner_email, config.n_attempts FROM agent_runs.jobs;
 ----
 existing-job	owner@example.com	1
 
 query TTTI
-SELECT trial_name, result.task_name, dataset_uri, result.task_id::INTEGER FROM trials;
+SELECT trial_name, result.task_name, dataset_uri, result.task_id::INTEGER FROM agent_runs.trials;
 ----
 existing-trial	example	s3://bucket/trajectories/example.lance	42
 
 statement error
-INSERT INTO trials SELECT '00000000-0000-0000-0000-000000000003',
-    '00000000-0000-0000-0000-000000000099', trial_name, config, result, dataset_uri FROM trials;
+INSERT INTO agent_runs.trials SELECT '00000000-0000-0000-0000-000000000003',
+    '00000000-0000-0000-0000-000000000099', trial_name, config, result, dataset_uri FROM agent_runs.trials;
 ----
 foreign key
 
+# Summary macros resolve their own helpers and tables from an unrelated search path.
+statement ok
+CREATE TABLE main.jobs (sentinel INTEGER);
+
+query TI
+SELECT job_name, n_completed_trials FROM agent_runs.job_summaries('agent_runs.jobs');
+----
+existing-job	1
+
+query TTT
+SELECT job_name, trial_name, agent_name FROM agent_runs.trial_summaries('agent_runs.trials');
+----
+existing-job	existing-trial	example
+
 # A newer catalog must fail extension initialization without rewriting data.
 statement ok
-INSERT INTO schema_migrations VALUES (2);
+INSERT INTO agent_runs.schema_migrations VALUES (2);
 
 restart no_extension_load
 
@@ -147,18 +184,18 @@ LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 Catalog schema version 2 is newer than supported version 1
 
 query IT
-SELECT (SELECT max(version) FROM schema_migrations), (SELECT job_name FROM jobs);
+SELECT (SELECT max(version) FROM agent_runs.schema_migrations), (SELECT job_name FROM agent_runs.jobs);
 ----
 2	existing-job
 
 statement ok
-DELETE FROM schema_migrations WHERE version = 2;
+DELETE FROM agent_runs.schema_migrations WHERE version = 2;
 
 statement ok
 LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 
 query II
-SELECT (SELECT count(*) FROM schema_migrations), (SELECT count(*) FROM trials);
+SELECT (SELECT count(*) FROM agent_runs.schema_migrations), (SELECT count(*) FROM agent_runs.trials);
 ----
 1	1
 
@@ -166,6 +203,6 @@ SELECT (SELECT count(*) FROM schema_migrations), (SELECT count(*) FROM trials);
 load {TEST_DIR}/catalog.db readonly
 
 query IT
-SELECT (SELECT version FROM schema_migrations), (SELECT job_name FROM jobs);
+SELECT (SELECT version FROM agent_runs.schema_migrations), (SELECT job_name FROM agent_runs.jobs);
 ----
 1	existing-job

@@ -58,7 +58,8 @@ Use `make format-all` to format C++, SQL tests, and CMake files.
 ## Catalog schema
 
 `LOAD agent_runs` initializes or upgrades the job/trial metadata catalog. It
-compares the largest recorded schema version with the latest bundled migration
+uses a fixed `agent_runs` schema for its tables, types, macros and version
+records. It compares the largest recorded schema version with the latest bundled migration
 and applies only pending versions in one transaction. Existing rows are
 preserved; an already up-to-date catalog needs no schema writes. A newer,
 unsupported catalog version fails extension loading.
