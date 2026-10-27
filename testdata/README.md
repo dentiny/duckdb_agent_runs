@@ -19,5 +19,6 @@ media bytes against the original local files.
 UUIDs and trial names. Config/result payloads exercise typed nested structures
 and VARIANT values larger than 2^53. The job, container-job, and parallel-job
 fixtures contain valid ATIF trajectories; parallel-job has two trials with
-distinct content. The missing-trajectory and invalid-trial fixtures exercise
-failure rollback, while the empty job has no trials.
+distinct content. The missing-trajectory, partial-failure, and invalid-trial
+fixtures exercise failure rollback and dataset cleanup; the empty job has no
+trials.

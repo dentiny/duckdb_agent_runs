@@ -1,0 +1,69 @@
+# name: test/sql/failure_cleanup.test
+# description: Failed parallel ingestion removes only datasets created by that call
+# group: [sql]
+
+require agent_runs
+
+query T
+SELECT current_setting('agent_runs_failure_cleanup');
+----
+true
+
+# One worker makes the first trial finish before the second trial fails.
+statement ok
+SET threads = 1;
+
+statement error
+CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/cleaned');
+----
+entity not found
+
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/cleaned/00000000-0000-0000-0000-000000000014.lance/**/*');
+----
+0
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
+
+statement ok
+SET agent_runs_failure_cleanup = false;
+
+statement error
+CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/kept');
+----
+entity not found
+
+query T
+SELECT count(*) > 0 FROM glob('{TEST_DIR}/kept/00000000-0000-0000-0000-000000000014.lance/**/*');
+----
+true
+
+statement ok
+SET agent_runs_failure_cleanup = true;
+
+# An existing dataset must not be deleted by a later failed call.
+statement error
+CALL ingest_agent_run('testdata/harbor/partial-failure', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/kept');
+----
+Dataset already exists
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
+
+restart no_extension_load
+
+require lance
+
+query TT
+SELECT trajectory_id, decode(steps[1].message[1].text)
+FROM '{TEST_DIR}/kept/00000000-0000-0000-0000-000000000014.lance';
+----
+single	hello
