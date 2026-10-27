@@ -1,9 +1,16 @@
 # agent_runs
 
-`agent_runs` imports ATIF (Agent Trajectory Interchange Format) trajectories
-into Lance and stores Harbor job/trial metadata in DuckDB. Its
-`ingest_agent_run` SQL call reads a Harbor job, converts each trial's trajectory,
-and inserts the job and trials into `agent_runs.jobs` and `agent_runs.trials`.
+Turn a Harbor job directory into job/trial metadata in a queryable DuckDB file
+and one Lance dataset per trial with a single `ingest_agent_run` call. The job
+and trial records live in `agent_runs.jobs` and `agent_runs.trials`; each
+trial's trajectory goes to the storage location you choose. You can filter and
+join runs in SQL, then follow a trial's `dataset_uri` to its trajectory without
+manually parsing job directories or copying media into the database.
+
+The extension reads Harbor job/trial metadata and converts ATIF (Agent
+Trajectory Interchange Format) trajectories into Lance. ATIF can reference
+images and audio alongside text, so the resulting datasets preserve multimodal
+trial data.
 
 ## Ingest a Harbor job
 
