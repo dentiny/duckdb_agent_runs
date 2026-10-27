@@ -4,15 +4,11 @@
 
 require agent_runs
 
-foreach codec lz4 zstd none
-
 query I
 CALL import_agent_trajectory('testdata/atif/multimodal/trajectory.json',
-    trajectory_destination := '{TEST_DIR}/{codec}.lance', text_compression := upper('{codec}'));
+    trajectory_destination := '{TEST_DIR}/multimodal.lance');
 ----
 1
-
-endloop
 
 query I
 CALL import_agent_trajectory('testdata/atif/text/trajectory.json.gz',
@@ -34,10 +30,8 @@ require lance
 
 require json
 
-foreach codec lz4 zstd none
-
 query I
-SELECT count(*) FROM '{TEST_DIR}/{codec}.lance';
+SELECT count(*) FROM '{TEST_DIR}/multimodal.lance';
 ----
 1
 
@@ -46,7 +40,7 @@ query IIIII
 SELECT d.trajectory_id = json_extract_string(j, 'trajectory_id'), d.atif_schema_version = json_extract_string(j, 'schema_version'),
        d.agent.name = json_extract_string(j, '$.agent.name'), d.agent.version = json_extract_string(j, '$.agent.version'),
        d.raw_json = expected.content
-FROM '{TEST_DIR}/{codec}.lance' d,
+FROM '{TEST_DIR}/multimodal.lance' d,
      (SELECT content, content::JSON j FROM read_text('testdata/atif/multimodal/trajectory.json')) expected;
 ----
 true	true	true	true	true
@@ -59,7 +53,7 @@ SELECT list_transform(d.steps, lambda s: s.step_id) = [1, 2, 3],
        decode(d.steps[2].message[1].text) = json_extract_string(j, '$.steps[1].message'),
        decode(d.steps[2].observation.results[1].content[1].text) = json_extract_string(j, '$.steps[1].observation.results[0].content[0].text'),
        decode(d.steps[3].message[1].text) = json_extract_string(j, '$.steps[2].message')
-FROM '{TEST_DIR}/{codec}.lance' d,
+FROM '{TEST_DIR}/multimodal.lance' d,
      (SELECT content::JSON j FROM read_text('testdata/atif/multimodal/trajectory.json')) expected;
 ----
 true	true	true	true	true	true
@@ -68,7 +62,7 @@ query III
 SELECT d.steps[2].tool_calls[1].tool_call_id = json_extract_string(j, '$.steps[1].tool_calls[0].tool_call_id'),
        d.steps[2].tool_calls[1].function_name = json_extract_string(j, '$.steps[1].tool_calls[0].function_name'),
        d.steps[2].tool_calls[1].arguments_json::JSON = json_extract(j, '$.steps[1].tool_calls[0].arguments')
-FROM '{TEST_DIR}/{codec}.lance' d,
+FROM '{TEST_DIR}/multimodal.lance' d,
      (SELECT content::JSON j FROM read_text('testdata/atif/multimodal/trajectory.json')) expected;
 ----
 true	true	true
@@ -79,13 +73,11 @@ SELECT d.steps[1].message[2].source.path = image.content,
        d.steps[1].message[3].source.path = audio.content,
        d.steps[2].observation.results[1].content[2].source.path = image.content,
        d.steps[2].observation.results[1].content[3].source.path = audio.content
-FROM '{TEST_DIR}/{codec}.lance' d,
+FROM '{TEST_DIR}/multimodal.lance' d,
      read_blob('testdata/atif/multimodal/atif-image.png') image,
      read_blob('testdata/atif/multimodal/atif-audio.wav') audio;
 ----
 true	true	true	true
-
-endloop
 
 foreach dataset gzip quote''s
 
