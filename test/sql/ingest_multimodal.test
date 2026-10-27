@@ -1,26 +1,14 @@
-# name: test/sql/import_agent_trajectory.test
+# name: test/sql/ingest_multimodal.test
 # description: Read back agent_runs output with the independent Lance test dependency
 # group: [sql]
 
 require agent_runs
 
-query I
-CALL import_agent_trajectory('testdata/atif/multimodal/trajectory.json',
-    trajectory_destination := '{TEST_DIR}/multimodal.lance');
+query TTI
+CALL ingest_agent_run('testdata/harbor/job', owner_email := 'agent@example.com',
+    trajectory_destination := '{TEST_DIR}/datasets');
 ----
-1
-
-query I
-CALL import_agent_trajectory('testdata/atif/text/trajectory.json.gz',
-    trajectory_destination := '{TEST_DIR}/gzip.lance');
-----
-1
-
-query I
-CALL import_agent_trajectory('testdata/atif/text/trajectory.json',
-    trajectory_destination := '{TEST_DIR}/quote''s.lance');
-----
-1
+00000000-0000-0000-0000-000000000001	completed-job	1
 
 # The two extensions register the same COPY format. Verify the written datasets
 # in a fresh database with only the independent Lance reader loaded.
@@ -29,29 +17,29 @@ restart no_extension_load
 require lance
 
 query I
-SELECT count(*) FROM '{TEST_DIR}/multimodal.lance';
+SELECT count(*) FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance';
 ----
 1
 
 # Check the concrete metadata values from the ATIF fixture.
 query TTTT
 SELECT trajectory_id, atif_schema_version, agent.name, agent.version
-FROM '{TEST_DIR}/multimodal.lance';
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance';
 ----
 media	ATIF-v1.8	test	1
 
 # The original ATIF document is also preserved byte for byte.
 query I
 SELECT d.raw_json = expected.content
-FROM '{TEST_DIR}/multimodal.lance' d,
-     read_text('testdata/atif/multimodal/trajectory.json') expected;
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance' d,
+     read_text('testdata/harbor/job/task__abc/agent/trajectory.json') expected;
 ----
 true
 
 # Inspect every typed step, including its decoded Unicode text.
 query ITT
 SELECT step.step_id, step.source, decode(step.message[1].text)
-FROM (SELECT unnest(steps) AS step FROM '{TEST_DIR}/multimodal.lance')
+FROM (SELECT unnest(steps) AS step FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance')
 ORDER BY step.step_id;
 ----
 1	user	hello 你好🙂
@@ -60,7 +48,7 @@ ORDER BY step.step_id;
 
 query T
 SELECT decode(steps[2].observation.results[1].content[1].text)
-FROM '{TEST_DIR}/multimodal.lance';
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance';
 ----
 RGB pattern and a 440 Hz tone.
 
@@ -68,7 +56,7 @@ query TTT
 SELECT steps[2].tool_calls[1].tool_call_id,
        steps[2].tool_calls[1].function_name,
        steps[2].tool_calls[1].arguments_json
-FROM '{TEST_DIR}/multimodal.lance';
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance';
 ----
 inspect-1	inspect_media	{}
 
@@ -78,18 +66,8 @@ SELECT d.steps[1].message[2].source.path = image.content,
        d.steps[1].message[3].source.path = audio.content,
        d.steps[2].observation.results[1].content[2].source.path = image.content,
        d.steps[2].observation.results[1].content[3].source.path = audio.content
-FROM '{TEST_DIR}/multimodal.lance' d,
-     read_blob('testdata/atif/multimodal/atif-image.png') image,
-     read_blob('testdata/atif/multimodal/atif-audio.wav') audio;
+FROM '{TEST_DIR}/datasets/00000000-0000-0000-0000-000000000002.lance' d,
+     read_blob('testdata/harbor/job/task__abc/agent/atif-image.png') image,
+     read_blob('testdata/harbor/job/task__abc/agent/atif-audio.wav') audio;
 ----
 true	true	true	true
-
-foreach dataset gzip quote''s
-
-query TTT
-SELECT trajectory_id, agent.name, decode(steps[1].message[1].text)
-FROM '{TEST_DIR}/{dataset}.lance';
-----
-single	example	hello
-
-endloop

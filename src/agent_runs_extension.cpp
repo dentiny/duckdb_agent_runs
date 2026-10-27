@@ -5,7 +5,6 @@
 #include "lance_conversion_extension.hpp"
 #include "run_ingest.hpp"
 #include "schema_migration.hpp"
-#include "trajectory_conversion.hpp"
 
 namespace duckdb {
 namespace {
@@ -15,7 +14,6 @@ void LoadInternal(ExtensionLoader &loader) {
 	db.LoadStaticExtension<LanceConversionExtension>();
 	MigrateAgentRunsSchema(loader.GetDatabaseInstance());
 	RegisterRunIngest(loader);
-	RegisterTrajectoryConversion(loader);
 	loader.SetDescription(
 	    "Import ATIF trajectories into Lance and ingest job/trial metadata into a versioned catalog.");
 }

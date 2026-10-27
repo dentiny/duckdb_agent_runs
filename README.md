@@ -1,13 +1,9 @@
 # agent_runs
 
 `agent_runs` imports ATIF (Agent Trajectory Interchange Format) trajectories
-into Lance and stores Harbor job/trial metadata in DuckDB. It provides two SQL
-calls:
-
-- `ingest_agent_run` reads a Harbor job, converts each trial's trajectory, and
-  inserts the job and trials into `agent_runs.jobs` and `agent_runs.trials`.
-- `import_agent_trajectory` converts one ATIF trajectory to a Lance dataset
-  without inserting job/trial metadata.
+into Lance and stores Harbor job/trial metadata in DuckDB. Its
+`ingest_agent_run` SQL call reads a Harbor job, converts each trial's trajectory,
+and inserts the job and trials into `agent_runs.jobs` and `agent_runs.trials`.
 
 ## Ingest a Harbor job
 
@@ -95,26 +91,6 @@ directory before starting DuckDB. A failed migration rolls back as a unit.
 See [schema design and evolution](schema/README.md) for the table layout and
 migration policy.
 
-## Import one ATIF trajectory
-
-Use this call when you only need a Lance dataset:
-
-```sql
-LOAD agent_runs;
-
-CALL import_agent_trajectory(
-    '/data/trial/agent/trajectory.json',
-    trajectory_destination := '/data/datasets/trial.lance'
-);
-```
-
-`trajectory_destination` names the complete `.lance` dataset, not a parent
-directory. The call returns `trajectories_converted`; it does not add a job or
-trial row. ATIF input can be JSON, JSONL, or gzip-compressed, from local
-storage, S3, or HTTP(S). Relative image and audio references are resolved
-beside the trajectory and embedded in Lance. `text_compression` defaults to
-`'lz4'`; `'zstd'` and `'none'` are also accepted.
-
 ## Storage and failures
 
 For S3 sources or destinations, configure the appropriate DuckDB secret and
@@ -136,7 +112,6 @@ ingestion:
 SET agent_runs_failure_cleanup = false;
 ```
 
-With cleanup disabled, a failed call can leave partial datasets. This setting
-applies to `ingest_agent_run`, not to standalone `import_agent_trajectory`.
+With cleanup disabled, a failed call can leave partial datasets.
 An explicit `ROLLBACK` after a successful ingestion rolls back its DuckDB
 metadata inserts, but does not delete the external Lance datasets.
