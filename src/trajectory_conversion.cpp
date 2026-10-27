@@ -6,6 +6,7 @@
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "trajectory_conversion.hpp"
+#include "util.hpp"
 
 #include <string_view>
 
@@ -20,11 +21,6 @@ std::string_view GetStringArgument(const Value &value, std::string_view name) {
 		throw InvalidInputException("%s must not be NULL", string(name));
 	}
 	return StringValue::Get(value);
-}
-
-//! Compare borrowed codec names without allocating temporary strings.
-bool CIEquals(std::string_view lhs, std::string_view rhs) {
-	return StringUtil::CIEquals(lhs.data(), lhs.size(), rhs.data(), rhs.size());
 }
 
 //! Resolve the supported text codecs to the internal compression enum.
