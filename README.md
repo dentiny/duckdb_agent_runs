@@ -14,10 +14,10 @@ trial data.
 
 ## Ingest a Harbor job
 
-The job directory needs `config.json` and `result.json`. Each trial needs its
-own metadata pair and `agent/trajectory.json`. Trials can be directly under
-the job directory, as shown here with multimodal data, or under a `trials/`
-directory.
+Job and trial `config.json` and `result.json` files are optional. Ingestion
+recursively discovers `trajectory.json`, including directly inside a trial,
+under `agent/`, and in nested phase directories. A complete Harbor directory
+can look like this:
 
 ```text
 my-job/
@@ -72,8 +72,12 @@ Lance datasets but does not provide a Lance dataset reader.
 
 `trajectory_destination` is required when the job has trials; a job without
 trials can omit it. `format := 'harbor'` is optional and is the only supported
-format today. Job and trial UUIDs come from the
-Harbor result files. Existing rows are not replaced, so importing the same
+format today. Job and trial UUIDs come from Harbor result files when present.
+Otherwise, stable UUIDv5 identifiers use the canonical source URI; `source_uri`
+preserves that provenance. Missing names fall back to the directory name
+(job) or relative directory path (trial). Missing config/results remain SQL
+NULL, and summary macros report `metadata_status = 'partial'` with unknown
+statistics left NULL. Malformed supplied metadata still fails ingestion. Existing rows are not replaced, so importing the same
 job again fails on its unique ID. The extension reads metadata and trajectories;
 it does not copy other job files, logs, or artifacts.
 
@@ -94,7 +98,9 @@ database; Lance datasets remain at their external destinations. Migration SQL
 is bundled in the extension binary, so `INSTALL` and `LOAD` need no companion
 files. A failed migration rolls back as a unit.
 See [schema design and evolution](schema/README.md) for the table layout and
-migration policy.
+migration policy. This pre-release change updates `0001.sql` directly; use a
+fresh database for the nullable metadata layout. It does not upgrade catalogs
+created with the previous baseline.
 
 ## Storage and failures
 

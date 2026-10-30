@@ -5,7 +5,9 @@ Inputs in `testdata/harbor/` are static fixtures owned by this repository.
 Metadata tests initialize the ml-infra-derived `agent_runs` schema with
 `LOAD agent_runs` and cover nested types, precise VARIANT values,
 caller rollback, constraint rollback, local metadata sources, and parallel
-trajectory conversion. Conversion failures roll back metadata inserts.
+trajectory conversion. `optional_metadata.test` covers missing config/results,
+nested phases, stable generated IDs, nullable summaries, duplicate registration,
+and independent readback of embedded media. Conversion failures roll back metadata inserts.
 
 The multimodal conversion test calls `ingest_agent_run` to write a trial's dataset.
 It then reads it with the independent `lance` extension and compares typed

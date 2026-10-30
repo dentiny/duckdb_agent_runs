@@ -1,0 +1,73 @@
+# name: test/sql/optional_metadata.test
+# description: Convert original exports with no producer config/results, including nested phases
+# group: [sql]
+
+require agent_runs
+
+query TI
+SELECT job_name, trials_ingested FROM ingest_agent_run('testdata/harbor/metadata-optional',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+metadata-optional	2
+
+query IIII
+SELECT config IS NULL, result IS NULL, uuid_extract_version(job_id) = 5,
+       ends_with(source_uri, '/testdata/harbor/metadata-optional')
+FROM agent_runs.jobs;
+----
+true	true	true	true
+
+query TIIII rowsort
+SELECT trial_name, config IS NULL, result IS NULL, uuid_extract_version(trial_id) = 5,
+       ends_with(source_uri, '/trajectory.json') FROM agent_runs.trials;
+----
+task-a	true	true	true	true
+task-a/.harbor-steps/phase-1	true	true	true	true
+
+query ITII
+SELECT n_total_trials, metadata_status, n_completed_trials IS NULL, n_errored_trials IS NULL
+FROM agent_runs.job_summaries('agent_runs.jobs');
+----
+2	partial	true	true
+
+query I
+SELECT count(*) FROM agent_runs.trial_summaries('agent_runs.trials')
+WHERE task_name IS NULL AND agent_name IS NULL AND has_error IS NULL;
+----
+2
+
+# Generated identities are stable; retry fails before converting duplicate outputs.
+statement error
+CALL ingest_agent_run('testdata/harbor/metadata-optional',
+    trajectory_destination := '{TEST_DIR}/retry');
+----
+Duplicate key
+
+statement ok
+COPY (SELECT trial_name, dataset_uri FROM agent_runs.trials) TO '{TEST_DIR}/uris.csv' (HEADER);
+
+restart no_extension_load
+
+require lance
+
+statement ok
+SET VARIABLE root_uri = (SELECT dataset_uri FROM read_csv('{TEST_DIR}/uris.csv') WHERE trial_name = 'task-a');
+
+statement ok
+SET VARIABLE phase_uri = (SELECT dataset_uri FROM read_csv('{TEST_DIR}/uris.csv') WHERE trial_name = 'task-a/.harbor-steps/phase-1');
+
+query IT
+SELECT count(*), min(trajectory_id) FROM __lance_scan(getvariable('phase_uri'));
+----
+1	media
+
+query III
+SELECT d.raw_json = original.content,
+       d.steps[1].message[2].source.path = image.content,
+       d.steps[1].message[3].source.path = audio.content
+FROM __lance_scan(getvariable('root_uri')) d,
+     read_text('testdata/harbor/metadata-optional/task-a/trajectory.json') original,
+     read_blob('testdata/harbor/metadata-optional/task-a/atif-image.png') image,
+     read_blob('testdata/harbor/metadata-optional/task-a/atif-audio.wav') audio;
+----
+true	true	true

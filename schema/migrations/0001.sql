@@ -381,72 +381,24 @@ CREATE TYPE agent_runs.trial_result AS STRUCT (
 -- the producer's Harbor models before projecting into these normalized STRUCTs.
 -- struct_extract is needed here: dotted STRUCT access is not bound in CHECKs.
 CREATE TABLE agent_runs.jobs (
-    job_id       UUID PRIMARY KEY,
-    job_name     VARCHAR NOT NULL UNIQUE CHECK (regexp_matches(job_name, '\S')),
-    config       agent_runs.job_config NOT NULL,
-    result       agent_runs.job_result NOT NULL,
-    CHECK (
-        struct_extract(config, 'jobs_dir') IS NOT NULL
-        AND struct_extract(config, 'n_attempts') IS NOT NULL
-        AND struct_extract(config, 'install_only') IS NOT NULL
-        AND struct_extract(config, 'timeout_multiplier') IS NOT NULL
-        AND struct_extract(config, 'debug') IS NOT NULL
-        AND struct_extract(config, 'n_concurrent_trials') IS NOT NULL
-        AND struct_extract(config, 'quiet') IS NOT NULL
-        AND struct_extract(config, 'retry') IS NOT NULL
-        AND struct_extract(config, 'environment') IS NOT NULL
-        AND struct_extract(config, 'verifier') IS NOT NULL
-        AND struct_extract(config, 'metrics') IS NOT NULL
-        AND struct_extract(config, 'agents') IS NOT NULL
-        AND struct_extract(config, 'datasets') IS NOT NULL
-        AND struct_extract(config, 'tasks') IS NOT NULL
-        AND struct_extract(config, 'artifacts') IS NOT NULL
-        AND struct_extract(config, 'metadata') IS NOT NULL
-        AND struct_extract(config, 'extra_instruction_paths') IS NOT NULL
-        AND struct_extract(config, 'source_jobs') IS NOT NULL
-        AND struct_extract(config, 'n_concurrent_trials') >= 1
-        AND (struct_extract(config, 'n_concurrent_prepare') IS NULL OR struct_extract(config, 'n_concurrent_prepare') >= 1)
-    ),
-    CHECK (
-        struct_extract(result, 'started_at') IS NOT NULL
-        AND struct_extract(result, 'n_total_trials') IS NOT NULL
-        AND struct_extract(result, 'stats') IS NOT NULL
-        AND struct_extract(result, 'finished_at') IS NOT NULL
-        AND struct_extract(result, 'finished_at') >= struct_extract(result, 'started_at')
-        AND struct_extract(result, 'n_total_trials') >= 0
-    )
+    job_id UUID PRIMARY KEY,
+    job_name VARCHAR NOT NULL CHECK (regexp_matches(job_name, '\S')),
+    config agent_runs.job_config,
+    result agent_runs.job_result,
+    source_uri VARCHAR,
+    CHECK (struct_extract(result, 'n_total_trials') >= 0),
+    CHECK (struct_extract(result, 'finished_at') >= struct_extract(result, 'started_at'))
 );
-
 CREATE TABLE agent_runs.trials (
-    trial_id     UUID PRIMARY KEY,
-    job_id       UUID NOT NULL REFERENCES agent_runs.jobs(job_id),
-    trial_name   VARCHAR NOT NULL CHECK (regexp_matches(trial_name, '\S')),
-    config       agent_runs.trial_config NOT NULL,
-    result       agent_runs.trial_result NOT NULL,
-    dataset_uri  VARCHAR NOT NULL CHECK (regexp_matches(dataset_uri, '\S')),
-    CHECK (
-        struct_extract(config, 'task') IS NOT NULL
-        AND struct_extract(config, 'trials_dir') IS NOT NULL
-        AND struct_extract(config, 'install_only') IS NOT NULL
-        AND struct_extract(config, 'timeout_multiplier') IS NOT NULL
-        AND struct_extract(config, 'agent') IS NOT NULL
-        AND struct_extract(config, 'environment') IS NOT NULL
-        AND struct_extract(config, 'verifier') IS NOT NULL
-        AND struct_extract(config, 'artifacts') IS NOT NULL
-        AND struct_extract(config, 'extra_instruction_paths') IS NOT NULL
-    ),
-    CHECK (
-        struct_extract(result, 'task_name') IS NOT NULL
-        AND struct_extract(result, 'trial_uri') IS NOT NULL
-        AND struct_extract(result, 'task_id') IS NOT NULL
-        AND struct_extract(result, 'task_checksum') IS NOT NULL
-        AND struct_extract(result, 'agent_info') IS NOT NULL
-        AND struct_extract(result, 'teardown_incomplete') IS NOT NULL
-        AND regexp_matches(struct_extract(result, 'task_name'), '\S')
-        AND struct_extract(struct_extract(result, 'agent_info'), 'name') IS NOT NULL
-        AND struct_extract(struct_extract(result, 'agent_info'), 'version') IS NOT NULL
-        AND (struct_extract(result, 'started_at') IS NULL OR struct_extract(result, 'finished_at') IS NULL OR struct_extract(result, 'finished_at') >= struct_extract(result, 'started_at'))
-    )
+    trial_id UUID PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES agent_runs.jobs(job_id),
+    trial_name VARCHAR NOT NULL CHECK (regexp_matches(trial_name, '\S')),
+    config agent_runs.trial_config,
+    result agent_runs.trial_result,
+    dataset_uri VARCHAR NOT NULL CHECK (regexp_matches(dataset_uri, '\S')),
+    source_uri VARCHAR,
+    CHECK (regexp_matches(struct_extract(result, 'task_name'), '\S')),
+    CHECK (struct_extract(result, 'finished_at') >= struct_extract(result, 'started_at'))
 );
 
 CREATE MACRO agent_runs.trial_agent_name(config, result) AS
@@ -465,12 +417,13 @@ CREATE INDEX trials_model_provider_idx ON agent_runs.trials ((result.agent_info.
 
 CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
 SELECT
-    job_id, job_name,
+    job_id, job_name, source_uri,
+    CASE WHEN config IS NULL OR result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
     result.started_at AS started_at,
     result.finished_at AS finished_at,
-    result.n_total_trials AS n_total_trials,
-    coalesce(result.stats.n_completed_trials, 0) AS n_completed_trials,
-    coalesce(result.stats.n_errored_trials, 0) AS n_errored_trials,
+    coalesce(result.n_total_trials, (SELECT count(*) FROM agent_runs.trials WHERE trials.job_id = j.job_id)) AS n_total_trials,
+    result.stats.n_completed_trials AS n_completed_trials,
+    result.stats.n_errored_trials AS n_errored_trials,
     result.stats.cost_usd AS cost_usd,
     CASE WHEN result.stats.n_input_tokens IS NOT NULL
          THEN greatest(0, result.stats.n_input_tokens - coalesce(result.stats.n_cache_tokens, 0))
@@ -492,7 +445,7 @@ SELECT
         list_transform(config.tasks, lambda t: coalesce(t.name,
             nullif(regexp_extract(rtrim(t.path, '/'), '[^/]+$'), ''), t.path))
     ))) AS datasets
-FROM query_table(relation);
+FROM query_table(relation) AS j;
 
 CREATE MACRO agent_runs.trial_summaries(relation) AS TABLE
 WITH contexts AS (
@@ -509,7 +462,8 @@ WITH contexts AS (
     FROM contexts
 )
 SELECT
-    t.trial_id, t.job_id, j.job_name, t.trial_name,
+    t.trial_id, t.job_id, j.job_name, t.trial_name, t.source_uri,
+    CASE WHEN t.config IS NULL OR t.result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
     t.result.task_name AS task_name,
     t.result.source AS source,
     agent_runs.trial_agent_name(t.config, t.result) AS agent_name,
@@ -521,7 +475,7 @@ SELECT
     CASE WHEN isfinite(try_cast(t.result.verifier_result.rewards['reward'] AS DOUBLE))
          THEN try_cast(t.result.verifier_result.rewards['reward'] AS DOUBLE) END AS reward,
     t.result.exception_info.exception_type AS exception_type,
-    t.result.exception_info IS NOT NULL AS has_error,
+    CASE WHEN t.result IS NULL THEN NULL ELSE t.result.exception_info IS NOT NULL END AS has_error,
     CASE WHEN t.n_input IS NOT NULL
          THEN greatest(0, t.n_input - coalesce(t.n_cache, 0)) END AS input_tokens,
     t.n_cache AS cached_input_tokens,

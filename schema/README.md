@@ -44,20 +44,25 @@ skipped.
 
 ## Table design
 
-- `agent_runs.jobs` stores one native job UUID, unique job name, typed
-  `job_config` and `job_result` STRUCTs.
+- `agent_runs.jobs` stores one job UUID, nonempty job name, nullable typed
+  `job_config` and `job_result` STRUCTs, and the original `source_uri`.
 - `agent_runs.trials` stores native trial UUIDs, their parent job UUID (foreign
-  key), trial name, typed `trial_config` and `trial_result`, and the exact trajectory
-  `dataset_uri`. Trial names are not globally unique.
+  key), trial name, nullable typed `trial_config` and `trial_result`, the exact trajectory
+  `dataset_uri`, and the original trajectory `source_uri`. Trial names are not globally unique.
 - Known producer fields remain typed, including nested STRUCTs, lists, timestamps
   and UUIDs. Dynamic maps and producer-defined payloads use VARIANT to preserve
   mixed JSON types and integer precision.
-- CHECK constraints enforce required root fields and basic timestamp/count
-  invariants. This projection is not a replacement for Harbor model validation.
+- CHECK constraints enforce nonempty identifiers/names/dataset URIs and basic
+  timestamp/count invariants when values are supplied. This projection is not a replacement for Harbor model validation.
 - Indexes support time, task, agent, model, source and provider lookups.
-  Summary macros provide query projections without duplicating stored data.
+  Summary macros expose `metadata_status`; absent results leave statistics
+  unknown, except total trials which falls back to registered rows.
 - These are job/trial metadata tables. Trajectory steps and media remain in the
   Lance datasets referenced by `dataset_uri`.
+
+Absent producer IDs use URL-namespace UUIDv5 over `harbor-catalog:job:<source_uri>`
+or `harbor-catalog:trial:<source_uri>`, matching the catalog service. These are
+catalog identities, not fabricated producer results.
 
 Harbor-specific config/result types belong to this first adapter. Supporting a
 new producer requires an explicit schema migration and adapter design; it must
