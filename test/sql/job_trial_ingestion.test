@@ -59,7 +59,7 @@ SELECT trial_name FROM agent_runs.trial_summaries('agent_runs.trials');
 task__abc
 
 query T
-SELECT to_json(config.metadata['mixed']) FROM agent_runs.jobs;
+SELECT variant_extract_string(config.metadata['mixed'], '') FROM agent_runs.jobs;
 ----
 [1,"two",true,null]
 
