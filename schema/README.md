@@ -101,7 +101,7 @@ incompatible deployed schema.
 
 ## Internal miles publication metadata (0002)
 
-`agent_runs.job_publications` stores one imported publication snapshot per catalog
+`agent_runs.miles_job_publications` stores one imported publication snapshot per catalog
 Job, with a foreign key to `agent_runs.jobs`. Trials join through their `job_id`.
 It retains the producer Job ID, source URI, original manifest/status JSON, import
 time, owner email, W&B identity/link, and nullable completed/total counts.
