@@ -103,9 +103,9 @@ incompatible deployed schema.
 
 `agent_runs.miles_job_publications` stores one imported publication snapshot per catalog
 Job, with a foreign key to `agent_runs.jobs`. Trials join through their `job_id`.
-It retains the producer Job ID, source URI, original manifest/status JSON, import
+It retains the producer Job ID, source URI, original manifest/status documents as VARIANT, import
 time, owner email, W&B identity/link, and nullable completed/total counts.
-Unknown producer fields remain in JSON; native Job/Trial config/result are unchanged.
+Unknown producer fields remain in VARIANT; native Job/Trial config/result are unchanged.
 No heartbeat polling is added.
 
 `agent_runs.jobs_with_publications` exposes owner email alongside native Job rows.

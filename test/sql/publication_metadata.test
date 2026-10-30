@@ -15,7 +15,7 @@ VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000
 
 statement ok
 INSERT INTO agent_runs.miles_job_publications (job_id, producer_job_id, source_uri, manifest, owner_email, wandb_run_id, wandb_url, completed_trials, total_trials)
-VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'file:///staged/run', '{"extra":true}', 'user@example.com', 'abc', 'https://wandb.ai/team/project/runs/abc', 0, 10);
+VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'file:///staged/run', '{"extra":true}'::JSON::VARIANT, 'user@example.com', 'abc', 'https://wandb.ai/team/project/runs/abc', 0, 10);
 
 query TTIIT
 SELECT job_name, owner_email, n_completed_trials, n_total_trials, progress_source
@@ -24,14 +24,14 @@ FROM agent_runs.published_job_summaries('agent_runs.jobs');
 run	user@example.com	0	10	publication
 
 query TTT
-SELECT t.trial_name, p.wandb_run_id, p.manifest->>'extra'
+SELECT t.trial_name, p.wandb_run_id, p.manifest::JSON->>'extra'
 FROM agent_runs.trials t JOIN agent_runs.miles_job_publications p USING (job_id);
 ----
 trial	abc	true
 
 statement error
 INSERT INTO agent_runs.miles_job_publications (job_id, producer_job_id, source_uri, manifest)
-VALUES ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003', 'file:///missing', '{}');
+VALUES ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003', 'file:///missing', '{}'::JSON::VARIANT);
 ----
 Violates foreign key constraint
 
@@ -55,3 +55,8 @@ query II
 SELECT n_completed_trials, n_total_trials FROM agent_runs.published_job_summaries('agent_runs.jobs');
 ----
 NULL	10
+
+query TT
+SELECT typeof(manifest), typeof(status_snapshot) FROM agent_runs.miles_job_publications;
+----
+VARIANT	VARIANT
