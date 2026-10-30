@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 include_directories(
   ${CMAKE_CURRENT_BINARY_DIR} src/include
-  external/duckdb_lance_conversion/src/include duckdb/extension/json/include
+  external/duckdb_lance_conversion/src/include
   duckdb/third_party/mbedtls/include)
 
 # Community installs distribute one extension binary, so compile the SQL files
@@ -61,8 +61,7 @@ set(EXTENSION_SOURCES src/agent_runs_extension.cpp src/harbor_metadata.cpp
 build_static_extension(agent_runs ${EXTENSION_SOURCES})
 build_loadable_extension(agent_runs "" ${EXTENSION_SOURCES})
 foreach(target agent_runs_extension agent_runs_loadable_extension)
-  target_link_libraries(${target} lance_conversion_extension json_extension
-                        duckdb_mbedtls)
+  target_link_libraries(${target} lance_conversion_extension duckdb_mbedtls)
 endforeach()
 install(
   TARGETS agent_runs_extension

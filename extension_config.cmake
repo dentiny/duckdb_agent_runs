@@ -14,7 +14,6 @@ duckdb_extension_load(
   ${LANCE_VERSION})
 duckdb_extension_load(agent_runs SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
                       EXTENSION_VERSION "0.1.0")
-duckdb_extension_load(json)
 duckdb_extension_load(parquet)
 
 if(BUILD_EXTENSION_TEST_DEPS STREQUAL "default" OR BUILD_EXTENSION_TEST_DEPS
