@@ -1,0 +1,57 @@
+# name: test/sql/publication_metadata.test
+# description: Publication snapshots join native Jobs and Trials without replacing their metadata
+# group: [sql]
+
+require agent_runs
+
+load {TEST_DIR}/publications.db
+
+statement ok
+INSERT INTO agent_runs.jobs (job_id, job_name) VALUES ('00000000-0000-0000-0000-000000000001', 'run');
+
+statement ok
+INSERT INTO agent_runs.trials (trial_id, job_id, trial_name, dataset_uri)
+VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'trial', '/tmp/trial.lance');
+
+statement ok
+INSERT INTO agent_runs.job_publications (job_id, producer_job_id, source_uri, manifest, owner_email, wandb_run_id, wandb_url, completed_trials, total_trials)
+VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003', 'file:///staged/run', '{"extra":true}', 'user@example.com', 'abc', 'https://wandb.ai/team/project/runs/abc', 0, 10);
+
+query TTIIT
+SELECT job_name, owner_email, n_completed_trials, n_total_trials, progress_source
+FROM agent_runs.published_job_summaries('agent_runs.jobs');
+----
+run	user@example.com	0	10	publication
+
+query TTT
+SELECT t.trial_name, p.wandb_run_id, p.manifest->>'extra'
+FROM agent_runs.trials t JOIN agent_runs.job_publications p USING (job_id);
+----
+trial	abc	true
+
+statement error
+INSERT INTO agent_runs.job_publications (job_id, producer_job_id, source_uri, manifest)
+VALUES ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000003', 'file:///missing', '{}');
+----
+Violates foreign key constraint
+
+statement error
+UPDATE agent_runs.job_publications SET completed_trials = 11;
+----
+CHECK constraint failed
+
+restart
+
+query TII
+SELECT owner_email, n_completed_trials, n_total_trials
+FROM agent_runs.published_job_summaries('agent_runs.jobs');
+----
+user@example.com	0	10
+
+statement ok
+UPDATE agent_runs.job_publications SET completed_trials = NULL;
+
+query II
+SELECT n_completed_trials, n_total_trials FROM agent_runs.published_job_summaries('agent_runs.jobs');
+----
+NULL	10

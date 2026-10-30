@@ -11,32 +11,32 @@ SELECT (SELECT max(version) FROM agent_runs.schema_migrations), (SELECT count(sq
        (SELECT count(*) FROM agent_runs.schema_migrations),
        (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
 ----
-1	1	1	0	0
+2	2	2	0	0
 
 restart
 
 query III
 SELECT max(version), count(*), count(sql) FROM agent_runs.schema_migrations;
 ----
-1	1	1
+2	2	2
 
 statement ok
-INSERT INTO agent_runs.schema_migrations VALUES (2, 'future migration');
+INSERT INTO agent_runs.schema_migrations VALUES (3, 'future migration');
 
 restart no_extension_load
 
 statement error
 LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';
 ----
-Catalog schema version 2 is newer than supported version 1
+Catalog schema version 3 is newer than supported version 2
 
 query I
 SELECT max(version) FROM agent_runs.schema_migrations;
 ----
-2
+3
 
 statement ok
-DELETE FROM agent_runs.schema_migrations WHERE version = 2;
+DELETE FROM agent_runs.schema_migrations WHERE version = 3;
 
 statement ok
 LOAD '{BUILD_DIRECTORY}/extension/agent_runs/agent_runs.duckdb_extension';

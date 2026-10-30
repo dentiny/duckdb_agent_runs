@@ -98,3 +98,22 @@ version, verify transformed values and constraints, repeat loading across a
 file-backed database reopen, and exercise a failed upgrade followed by a retry. Do not add a placeholder migration solely to increment
 the version. There is no automatic downgrade; restore a backup to roll back an
 incompatible deployed schema.
+
+## Internal miles publication metadata (0002)
+
+`agent_runs.job_publications` stores one imported publication snapshot per catalog
+Job, with a foreign key to `agent_runs.jobs`. Trials join through their `job_id`.
+It retains the producer Job ID, source URI, original manifest/status JSON, import
+time, owner email, W&B identity/link, and nullable completed/total counts.
+Unknown producer fields remain in JSON; native Job/Trial config/result are unchanged.
+No heartbeat polling is added.
+
+`agent_runs.jobs_with_publications` exposes owner email alongside native Job rows.
+`agent_runs.published_job_summaries('agent_runs.jobs')` adds publication owner/W&B
+and prefers a publication's progress pair; missing members remain NULL. Existing
+Jobs without a publication retain their prior summary behavior.
+
+The ml-infra catalog HTTP adapter reads staged `manifest_directory` inputs and
+validates Job identity, progress, and W&B URLs before writing this model. This
+companion extension migration adds storage/query support only; its native
+`ingest_agent_run` signature is unchanged.
