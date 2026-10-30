@@ -9,7 +9,6 @@
 #include "run_ingest.hpp"
 
 #include <algorithm>
-#include <filesystem>
 #include <string_view>
 #include <utility>
 
@@ -44,22 +43,19 @@ Value CatalogID(const string &kind, const string &source) {
 	                                              0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8};
 	duckdb_mbedtls::MbedTlsWrapper::SHA1State sha;
 	sha.AddString(string(reinterpret_cast<const char *>(url_namespace), sizeof(url_namespace)));
-	sha.AddString("harbor-catalog:" + kind + ":" + source);
+	sha.AddString(StringUtil::Format("harbor-catalog:%s:%s", kind, source));
 	auto hash = sha.Finalize();
 	hash[6] = char((static_cast<unsigned char>(hash[6]) & 0x0f) | 0x50);
 	hash[8] = char((static_cast<unsigned char>(hash[8]) & 0x3f) | 0x80);
 	return Value::UUID(UUID::FromBlob(const_data_ptr_cast(hash.data())));
 }
 
-string Provenance(const string &source) {
-	if (FileSystem::IsRemoteFile(source)) {
-		auto normalized = source;
-		while (!normalized.empty() && normalized.back() == '/') {
-			normalized.pop_back();
-		}
-		return normalized;
+string Provenance(FileSystem &fs, const string &path) {
+	if (FileSystem::IsRemoteFile(path)) {
+		return path;
 	}
-	return "file://" + StringUtil::URLEncode(std::filesystem::weakly_canonical(source).generic_string(), false);
+	auto canonical = StringUtil::Replace(fs.CanonicalizePath(path), fs.PathSeparator(path), "/");
+	return StringUtil::Format("file://%s", StringUtil::URLEncode(canonical, false));
 }
 
 RunRecord ReadMetadataRecord(ClientContext &context, FileSystem &fs, const string &directory, const string &source_uri,
@@ -103,15 +99,17 @@ vector<string> FindTrajectories(FileSystem &fs, const string &source) {
 
 RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
-	auto source = options.source;
-	while (!source.empty() && source.back() == '/') {
-		source.pop_back();
-	}
-	if (source.empty()) {
+	if (options.source.empty()) {
 		throw InvalidInputException("job_directory must not be empty");
 	}
+	// Glob returns expanded, normalized paths; trial names are suffixes of this root.
+	auto source = fs.CanonicalizePath(options.source);
+	StringUtil::RTrim(source, "/");
+	if (source.empty()) {
+		throw InvalidInputException("job_directory must not be the root directory");
+	}
 	RunMetadata metadata;
-	metadata.job = ReadMetadataRecord(context, fs, source, Provenance(source), "job");
+	metadata.job = ReadMetadataRecord(context, fs, source, Provenance(fs, source), "job");
 	auto name = ReadField(context, metadata.job.config, "job_name");
 	metadata.job.name = name.IsNull() ? Path::FromString(source).GetPathSegments().back() : StringValue::Get(name);
 	auto trajectories = FindTrajectories(fs, source);
@@ -120,7 +118,8 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	}
 	Connection summaries(*context.db);
 	summaries.context->config = context.config;
-	const auto summary_sql = "SELECT " + GetAgentRunsName(context, "atif_metadata").ToString() + "(?::JSON)";
+	const auto summary_sql =
+	    StringUtil::Format("SELECT %s(?::VARIANT)", GetAgentRunsName(context, "atif_metadata").ToString());
 	for (const auto &trajectory : trajectories) {
 		auto directory = Path::FromString(trajectory).Parent();
 		if (directory.GetPathSegments().back() == "agent") {
@@ -130,13 +129,13 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 			throw InvalidInputException("trajectory.json must be inside a Trial directory: %s", trajectory);
 		}
 		auto relative = directory.ToString().substr(source.size() + 1);
-		auto trial = ReadMetadataRecord(context, fs, directory.ToString(), Provenance(trajectory), "trial");
+		auto trial = ReadMetadataRecord(context, fs, directory.ToString(), Provenance(fs, trajectory), "trial");
 		auto trial_name = ReadField(context, trial.result, "trial_name");
 		trial.name = trial_name.IsNull() ? relative : StringValue::Get(trial_name);
 		trial.trajectory_path = trajectory;
 		auto document = ReadMetadataDocument(context, fs, trajectory);
 		if (!document.IsNull()) {
-			auto summary = summaries.Query(summary_sql, document.CastAs(context, LogicalType::JSON()));
+			auto summary = summaries.Query(summary_sql, document);
 			summary->ThrowIfError();
 			trial.trajectory = summary->Fetch()->GetValue(0, 0);
 		}
