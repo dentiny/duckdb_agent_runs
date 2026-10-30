@@ -399,15 +399,15 @@ CREATE TYPE agent_runs.trajectory_metadata AS STRUCT (
 CREATE MACRO agent_runs.atif_metadata(document) AS (
     WITH fields AS (
         SELECT
-            nullif(trim(json_extract_string(document, '$.agent.name')), '') AS agent,
-            nullif(trim(json_extract_string(document, '$.agent.model_name')), '') AS model,
-            try(to_timestamp(try_cast(json_extract_string(document, '$.extra.hark_trajectory_meta.started_at') AS DOUBLE))) AS started,
-            try(to_timestamp(try_cast(json_extract_string(document, '$.extra.hark_trajectory_meta.completed_at') AS DOUBLE))) AS finished,
-            list_transform(json_extract_string(document, '$.steps[*].timestamp'), lambda t: try_cast(t AS TIMESTAMPTZ)) AS step_times,
-            try_cast(json_extract_string(document, '$.final_metrics.total_prompt_tokens') AS BIGINT) AS n_input,
-            try_cast(json_extract_string(document, '$.final_metrics.total_cached_tokens') AS BIGINT) AS n_cache,
-            try_cast(json_extract_string(document, '$.final_metrics.total_completion_tokens') AS BIGINT) AS n_output,
-            try_cast(json_extract_string(document, '$.final_metrics.total_cost_usd') AS DOUBLE) AS cost
+            nullif(trim(try_cast((document).agent.name AS VARCHAR)), '') AS agent,
+            nullif(trim(try_cast((document).agent.model_name AS VARCHAR)), '') AS model,
+            try(to_timestamp(try_cast((document).extra.hark_trajectory_meta.started_at AS DOUBLE))) AS started,
+            try(to_timestamp(try_cast((document).extra.hark_trajectory_meta.completed_at AS DOUBLE))) AS finished,
+            list_transform(try_cast((document).steps AS VARIANT[]), lambda s: try_cast(s."timestamp" AS TIMESTAMPTZ)) AS step_times,
+            try_cast((document).final_metrics.total_prompt_tokens AS BIGINT) AS n_input,
+            try_cast((document).final_metrics.total_cached_tokens AS BIGINT) AS n_cache,
+            try_cast((document).final_metrics.total_completion_tokens AS BIGINT) AS n_output,
+            try_cast((document).final_metrics.total_cost_usd AS DOUBLE) AS cost
     )
     SELECT {
         'agent_name': agent,

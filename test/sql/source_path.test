@@ -1,0 +1,32 @@
+# name: test/sql/source_path.test
+# description: Non-canonical job paths keep relative trial names and stable generated identities
+# group: [sql]
+
+require agent_runs
+
+statement ok
+SET home_directory = 'testdata';
+
+query TI
+SELECT job_name, trials_ingested FROM ingest_agent_run('~/harbor/../harbor/./metadata-optional/',
+    trajectory_destination := '{TEST_DIR}/datasets');
+----
+metadata-optional	2
+
+query TT rowsort
+SELECT trial_name, ends_with(source_uri, '/testdata/harbor/metadata-optional/' || trial_name || '/trajectory.json')
+FROM agent_runs.trials;
+----
+task-a	true
+task-a/.harbor-steps/phase-1	true
+
+query T
+SELECT ends_with(source_uri, '/testdata/harbor/metadata-optional') FROM agent_runs.jobs;
+----
+true
+
+# Each spelling of the same directory generates the same job UUID.
+statement error
+CALL ingest_agent_run('./testdata/harbor/metadata-optional', trajectory_destination := '{TEST_DIR}/retry');
+----
+Duplicate key
