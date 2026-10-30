@@ -8,6 +8,7 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/appender.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/client_context_state.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -17,7 +18,6 @@
 #include "run_ingest.hpp"
 #include "schema_migration.hpp"
 
-#include <exception>
 #include <string_view>
 
 namespace duckdb {
@@ -26,6 +26,7 @@ namespace {
 constexpr std::string_view JOBS_TABLE_NAME = "jobs";
 constexpr std::string_view TRIALS_TABLE_NAME = "trials";
 constexpr std::string_view FAILURE_CLEANUP_SETTING = "agent_runs_failure_cleanup";
+constexpr std::string_view PENDING_DATASETS_STATE = "agent_runs_pending_datasets";
 
 struct RunBindData : TableFunctionData {
 	RunOptions options;
@@ -33,6 +34,30 @@ struct RunBindData : TableFunctionData {
 
 struct RunState : GlobalTableFunctionState {
 	bool done = false;
+};
+
+//! Keep new trial datasets only if the transaction that inserted their metadata commits.
+class PendingDatasets : public ClientContextState {
+public:
+	void Add(const vector<string> &new_uris) {
+		uris.insert(uris.end(), new_uris.begin(), new_uris.end());
+	}
+
+	void TransactionCommit(MetaTransaction &, ClientContext &) override {
+		uris.clear();
+	}
+
+	//! Also runs when COMMIT fails, so datasets never outlive their rolled-back metadata.
+	void TransactionRollback(MetaTransaction &, ClientContext &context) override {
+		auto pending = std::move(uris);
+		uris.clear();
+		for (const auto &uri : pending) {
+			DeleteLanceDataset(context, uri);
+		}
+	}
+
+private:
+	vector<string> uris;
 };
 
 //! Execute one trial conversion on its own connection using DuckDB's task scheduler.
@@ -204,19 +229,12 @@ void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options,
 		    make_uniq<ConvertTrialTask>(executor, *context.db, context.config, trial.trajectory_path, destination));
 		destinations.emplace_back(std::move(destination));
 	}
-	try {
-		executor.ScheduleTasks(std::move(tasks));
-		executor.WorkOnTasks();
-	} catch (...) {
-		auto conversion_error = std::current_exception();
-		executor.CancelAndDrain();
-		if (cleanup_enabled) {
-			for (const auto &uri : destinations) {
-				DeleteLanceDataset(context, uri);
-			}
-		}
-		std::rethrow_exception(conversion_error);
+	if (cleanup_enabled) {
+		context.registered_state->GetOrCreate<PendingDatasets>(string(PENDING_DATASETS_STATE))->Add(destinations);
 	}
+	// On error, the executor drains running tasks before the transaction rollback deletes their outputs.
+	executor.ScheduleTasks(std::move(tasks));
+	executor.WorkOnTasks();
 }
 
 //! Read and append one job with its trials, returning one summary row.
@@ -247,7 +265,7 @@ void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &out
 void RegisterRunIngest(ExtensionLoader &loader) {
 	DBConfig::GetConfig(loader.GetDatabaseInstance())
 	    .AddExtensionOption(Identifier(FAILURE_CLEANUP_SETTING),
-	                        "Remove newly written trial datasets if ingestion fails", LogicalType::BOOLEAN,
+	                        "Remove newly written trial datasets if the ingesting transaction rolls back", LogicalType::BOOLEAN,
 	                        Value::BOOLEAN(true));
 	TableFunction function("ingest_agent_run", {LogicalType::VARCHAR}, IngestRun, BindRun, InitRun);
 	function.GetSignature().WithTypedKwargs("options", [](TypedKwargs &options) {
