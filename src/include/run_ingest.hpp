@@ -24,6 +24,8 @@ struct RunRecord {
 	string name;
 	Value config;
 	Value result;
+	//! ATIF summary, kept separate from producer config/results.
+	Value trajectory;
 	//! Original directory/trajectory URI, independent of producer metadata.
 	string source_uri;
 	//! Harbor trial trajectory path; empty for the job record.

@@ -3,6 +3,8 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/connection.hpp"
+#include "schema_migration.hpp"
 #include "mbedtls_wrapper.hpp"
 #include "run_ingest.hpp"
 
@@ -116,6 +118,9 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	if (trajectories.empty() && metadata.job.config.IsNull() && metadata.job.result.IsNull()) {
 		throw InvalidInputException("No trajectories or Job metadata found: %s", source);
 	}
+	Connection summaries(*context.db);
+	summaries.context->config = context.config;
+	const auto summary_sql = "SELECT " + GetAgentRunsName(context, "atif_metadata").ToString() + "(?::JSON)";
 	for (const auto &trajectory : trajectories) {
 		auto directory = Path::FromString(trajectory).Parent();
 		if (directory.GetPathSegments().back() == "agent") {
@@ -129,6 +134,12 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 		auto trial_name = ReadField(context, trial.result, "trial_name");
 		trial.name = trial_name.IsNull() ? relative : StringValue::Get(trial_name);
 		trial.trajectory_path = trajectory;
+		auto document = ReadMetadataDocument(context, fs, trajectory);
+		if (!document.IsNull()) {
+			auto summary = summaries.Query(summary_sql, document.CastAs(context, LogicalType::JSON()));
+			summary->ThrowIfError();
+			trial.trajectory = summary->Fetch()->GetValue(0, 0);
+		}
 		metadata.trials.emplace_back(std::move(trial));
 	}
 	return metadata;

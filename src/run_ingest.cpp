@@ -90,11 +90,12 @@ TableCatalogEntry &GetJobsTable(ClientContext &context) {
 
 //! Require the pinned trial table layout before appending.
 TableCatalogEntry &GetTrialsTable(ClientContext &context) {
-	return GetMetadataTable(context, TRIALS_TABLE_NAME,
-	                        {"trial_id", "job_id", "trial_name", "config", "result", "dataset_uri", "source_uri"},
-	                        {LogicalType::UUID, LogicalType::UUID, LogicalType::VARCHAR,
-	                         GetMetadataType(context, "trial_config"), GetMetadataType(context, "trial_result"),
-	                         LogicalType::VARCHAR, LogicalType::VARCHAR});
+	return GetMetadataTable(
+	    context, TRIALS_TABLE_NAME,
+	    {"trial_id", "job_id", "trial_name", "config", "result", "trajectory", "dataset_uri", "source_uri"},
+	    {LogicalType::UUID, LogicalType::UUID, LogicalType::VARCHAR, GetMetadataType(context, "trial_config"),
+	     GetMetadataType(context, "trial_result"), GetMetadataType(context, "trajectory_metadata"),
+	     LogicalType::VARCHAR, LogicalType::VARCHAR});
 }
 
 //! Borrow a non-NULL VARCHAR argument while its Value remains alive.
@@ -172,7 +173,8 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 		auto dataset_uri = GetTrialDatasetURI(fs, options, trial);
 		trial_appender.AppendRow(
 		    trial.id, metadata.job.id, Value(trial.name), trial.config.CastAs(context, trial_types[3]),
-		    trial.result.CastAs(context, trial_types[4]), Value(dataset_uri), Value(trial.source_uri));
+		    trial.result.CastAs(context, trial_types[4]), trial.trajectory.CastAs(context, trial_types[5]),
+		    Value(dataset_uri), Value(trial.source_uri));
 	}
 	trial_appender.Close();
 }

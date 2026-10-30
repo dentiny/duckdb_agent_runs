@@ -3,7 +3,8 @@
   "trajectory_id": "media",
   "agent": {
     "name": "test",
-    "version": "1"
+    "version": "1",
+    "model_name": "openai/qwen38-27b"
   },
   "notes": "Generated conformance fixture with decodable PNG/WAV; not a production agent capture.",
   "steps": [
@@ -77,5 +78,17 @@
       "source": "agent",
       "message": "The image is an RGB pattern; the audio is a short tone."
     }
-  ]
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 100,
+    "total_cached_tokens": 40,
+    "total_completion_tokens": 12,
+    "total_cost_usd": 0.25
+  },
+  "extra": {
+    "hark_trajectory_meta": {
+      "started_at": 1791930600,
+      "completed_at": 1791930673
+    }
+  }
 }
