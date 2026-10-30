@@ -31,6 +31,11 @@ SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.
 ----
 0	0
 
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/rolled-back/**/*');
+----
+0
+
 query TTI
 CALL ingest_agent_run('testdata/harbor/job',
     trajectory_destination := '{TEST_DIR}/datasets');

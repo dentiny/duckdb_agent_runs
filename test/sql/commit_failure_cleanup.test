@@ -1,0 +1,33 @@
+# name: test/sql/commit_failure_cleanup.test
+# description: A failed COMMIT removes the trial datasets written by its ingestion
+# group: [sql]
+
+require agent_runs
+
+statement ok con1
+BEGIN;
+
+query TTI con1
+CALL ingest_agent_run('testdata/harbor/job', trajectory_destination := '{TEST_DIR}/conflicting');
+----
+00000000-0000-0000-0000-000000000001	completed-job	1
+
+query TTI con2
+CALL ingest_agent_run('testdata/harbor/job', trajectory_destination := '{TEST_DIR}/committed');
+----
+00000000-0000-0000-0000-000000000001	completed-job	1
+
+statement error con1
+COMMIT;
+----
+Failed to commit
+
+query I
+SELECT count(*) FROM glob('{TEST_DIR}/conflicting/**/*');
+----
+0
+
+query T
+SELECT count(*) > 0 FROM glob('{TEST_DIR}/committed/00000000-0000-0000-0000-000000000002.lance/**/*');
+----
+true

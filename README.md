@@ -108,13 +108,15 @@ For S3 sources or destinations, configure the appropriate DuckDB secret and
 load `httpfs` when required. A Harbor job source may be a local directory or
 an S3 prefix. The Lance datasets live outside the DuckDB database file.
 
-If a trial conversion fails during `ingest_agent_run`, its job/trial inserts
-are rolled back. By default, the extension also waits for started conversions
-to stop and removes files under this call's dataset destinations, even if no
-valid Lance dataset was committed. With cleanup enabled, it refuses to start
-when a destination already contains files, so cleanup cannot remove a
-preexisting dataset. A
-deletion error is returned to the caller; datasets not yet deleted may remain.
+Trial datasets follow the transaction that inserted their metadata. If that
+transaction rolls back, the extension removes the files under this call's dataset
+destinations, even if no valid Lance dataset was committed. This applies when a
+trial conversion fails, when `COMMIT` fails (for example, on a conflicting
+concurrent ingestion), and on an explicit `ROLLBACK`. Started conversions stop
+before the cleanup runs. With cleanup enabled, ingestion refuses to start when a
+destination already contains files, so cleanup cannot remove a preexisting
+dataset. A deletion error is returned to the caller; datasets not yet deleted
+may remain.
 
 If the destination credentials lack delete permission, disable cleanup before
 ingestion:
@@ -123,6 +125,5 @@ ingestion:
 SET agent_runs_failure_cleanup = false;
 ```
 
-With cleanup disabled, a failed call can leave partial datasets.
-An explicit `ROLLBACK` after a successful ingestion rolls back its DuckDB
-metadata inserts, but does not delete the external Lance datasets.
+With cleanup disabled, a failed call or rolled-back transaction can leave
+partial or orphaned datasets.
