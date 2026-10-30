@@ -83,17 +83,18 @@ TableCatalogEntry &GetMetadataTable(ClientContext &context, std::string_view nam
 
 //! Require the pinned job table layout before appending.
 TableCatalogEntry &GetJobsTable(ClientContext &context) {
-	return GetMetadataTable(context, JOBS_TABLE_NAME, {"job_id", "job_name", "config", "result"},
+	return GetMetadataTable(context, JOBS_TABLE_NAME, {"job_id", "job_name", "config", "result", "source_uri"},
 	                        {LogicalType::UUID, LogicalType::VARCHAR, GetMetadataType(context, "job_config"),
-	                         GetMetadataType(context, "job_result")});
+	                         GetMetadataType(context, "job_result"), LogicalType::VARCHAR});
 }
 
 //! Require the pinned trial table layout before appending.
 TableCatalogEntry &GetTrialsTable(ClientContext &context) {
-	return GetMetadataTable(
-	    context, TRIALS_TABLE_NAME, {"trial_id", "job_id", "trial_name", "config", "result", "dataset_uri"},
-	    {LogicalType::UUID, LogicalType::UUID, LogicalType::VARCHAR, GetMetadataType(context, "trial_config"),
-	     GetMetadataType(context, "trial_result"), LogicalType::VARCHAR});
+	return GetMetadataTable(context, TRIALS_TABLE_NAME,
+	                        {"trial_id", "job_id", "trial_name", "config", "result", "dataset_uri", "source_uri"},
+	                        {LogicalType::UUID, LogicalType::UUID, LogicalType::VARCHAR,
+	                         GetMetadataType(context, "trial_config"), GetMetadataType(context, "trial_result"),
+	                         LogicalType::VARCHAR, LogicalType::VARCHAR});
 }
 
 //! Borrow a non-NULL VARCHAR argument while its Value remains alive.
@@ -160,7 +161,7 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 	auto job_types = jobs.GetTypes();
 	InternalAppender job_appender(context, jobs);
 	job_appender.AppendRow(metadata.job.id, Value(metadata.job.name), metadata.job.config.CastAs(context, job_types[2]),
-	                       metadata.job.result.CastAs(context, job_types[3]));
+	                       metadata.job.result.CastAs(context, job_types[3]), Value(metadata.job.source_uri));
 	job_appender.Close();
 
 	auto &trials = GetTrialsTable(context);
@@ -169,9 +170,9 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 	auto &fs = FileSystem::GetFileSystem(context);
 	for (const auto &trial : metadata.trials) {
 		auto dataset_uri = GetTrialDatasetURI(fs, options, trial);
-		trial_appender.AppendRow(trial.id, metadata.job.id, Value(trial.name),
-		                         trial.config.CastAs(context, trial_types[3]),
-		                         trial.result.CastAs(context, trial_types[4]), Value(dataset_uri));
+		trial_appender.AppendRow(
+		    trial.id, metadata.job.id, Value(trial.name), trial.config.CastAs(context, trial_types[3]),
+		    trial.result.CastAs(context, trial_types[4]), Value(dataset_uri), Value(trial.source_uri));
 	}
 	trial_appender.Close();
 }

@@ -1,19 +1,24 @@
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "mbedtls_wrapper.hpp"
 #include "run_ingest.hpp"
 
 #include <algorithm>
-#include <array>
+#include <filesystem>
 #include <string_view>
 #include <utility>
 
 namespace duckdb {
 namespace {
 
-//! Parse a complete metadata document without inferring or flattening its nested schema.
 Value ReadMetadataDocument(ClientContext &context, FileSystem &fs, const string &path) {
-	auto file = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ);
+	auto file = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_NULL_IF_NOT_EXISTS);
+	if (!file) {
+		return Value(LogicalType::VARIANT());
+	}
 	auto size = file->GetFileSize();
 	if (size < 0) {
 		throw IOException("Cannot determine metadata file size: %s", path);
@@ -23,56 +28,107 @@ Value ReadMetadataDocument(ClientContext &context, FileSystem &fs, const string 
 	return Value(std::move(contents)).CastAs(context, LogicalType::JSON()).CastAs(context, LogicalType::VARIANT());
 }
 
-//! Copy an identity field out of the temporary projection, retaining the complete config/result documents.
-string ReadRequiredField(ClientContext &context, const Value &document, std::string_view name) {
-	auto projected = document.CastAs(context, LogicalType::STRUCT({{Identifier(name), LogicalType::VARCHAR}}));
-	const auto &field = StructValue::GetChildren(projected)[0];
-	if (field.IsNull() || StringValue::Get(field).empty()) {
-		throw InvalidInputException("Harbor metadata requires %s", string(name));
+Value ReadField(ClientContext &context, const Value &document, std::string_view name) {
+	if (document.IsNull()) {
+		return Value(LogicalType::VARCHAR);
 	}
-	return StringValue::Get(field);
+	auto projected = document.CastAs(context, LogicalType::STRUCT({{Identifier(name), LogicalType::VARCHAR}}));
+	return StructValue::GetChildren(projected)[0];
 }
 
-//! Read one native Harbor config/result pair and its result UUID.
-RunRecord ReadMetadataRecord(ClientContext &context, FileSystem &fs, const string &directory) {
+//! Same URL-namespace UUIDv5 rule as the catalog service; generated IDs are not producer IDs.
+Value CatalogID(const string &kind, const string &source) {
+	static const unsigned char url_namespace[] = {0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1,
+	                                              0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8};
+	duckdb_mbedtls::MbedTlsWrapper::SHA1State sha;
+	sha.AddString(string(reinterpret_cast<const char *>(url_namespace), sizeof(url_namespace)));
+	sha.AddString("harbor-catalog:" + kind + ":" + source);
+	auto hash = sha.Finalize();
+	hash[6] = char((static_cast<unsigned char>(hash[6]) & 0x0f) | 0x50);
+	hash[8] = char((static_cast<unsigned char>(hash[8]) & 0x3f) | 0x80);
+	return Value::UUID(UUID::FromBlob(const_data_ptr_cast(hash.data())));
+}
+
+string Provenance(const string &source) {
+	if (FileSystem::IsRemoteFile(source)) {
+		auto normalized = source;
+		while (!normalized.empty() && normalized.back() == '/') {
+			normalized.pop_back();
+		}
+		return normalized;
+	}
+	return "file://" + StringUtil::URLEncode(std::filesystem::weakly_canonical(source).generic_string(), false);
+}
+
+RunRecord ReadMetadataRecord(ClientContext &context, FileSystem &fs, const string &directory, const string &source_uri,
+                             const string &kind) {
 	RunRecord record;
+	record.source_uri = source_uri;
 	record.config = ReadMetadataDocument(context, fs, fs.JoinPath(directory, "config.json"));
 	record.result = ReadMetadataDocument(context, fs, fs.JoinPath(directory, "result.json"));
-	record.id = Value(ReadRequiredField(context, record.result, "id")).CastAs(context, LogicalType::UUID);
+	auto id = ReadField(context, record.result, "id");
+	record.id = id.IsNull() ? CatalogID(kind, source_uri) : id.CastAs(context, LogicalType::UUID);
 	return record;
 }
 
-//! Locate trial metadata only; logs, artifacts, media, and trajectory files are never scanned.
-vector<string> FindTrialDirectories(FileSystem &fs, const string &source) {
-	vector<string> directories;
-	auto direct_pattern = fs.JoinPath(source, "*", "config.json");
-	auto nested_pattern = fs.JoinPath(source, "trials", "*", "config.json");
-	std::array<string, 2> patterns {std::move(direct_pattern), std::move(nested_pattern)};
-	for (const auto &pattern : patterns) {
+vector<string> FindTrajectories(FileSystem &fs, const string &source) {
+	vector<string> paths;
+	for (const auto &entry : fs.Glob(fs.JoinPath(source, "**", "trajectory.json"))) {
+		paths.push_back(entry.path);
+	}
+	// Metadata-only trials still surface missing trajectories as conversion errors.
+	for (const auto &pattern :
+	     {fs.JoinPath(source, "*", "config.json"), fs.JoinPath(source, "trials", "*", "config.json")}) {
 		for (const auto &entry : fs.Glob(pattern)) {
-			auto directory = Path::FromString(entry.path).Parent();
-			if (directory.GetPathSegments().back() != "trials") {
-				directories.emplace_back(directory.ToString());
+			auto directory = Path::FromString(entry.path).Parent().ToString();
+			if (Path::FromString(directory).GetPathSegments().back() == "trials") {
+				continue;
+			}
+			auto root = fs.JoinPath(directory, "trajectory.json");
+			auto agent = fs.JoinPath(directory, "agent", "trajectory.json");
+			if (std::find(paths.begin(), paths.end(), root) == paths.end() &&
+			    std::find(paths.begin(), paths.end(), agent) == paths.end()) {
+				paths.push_back(agent);
 			}
 		}
 	}
-	std::sort(directories.begin(), directories.end());
-	return directories;
+	std::sort(paths.begin(), paths.end());
+	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+	return paths;
 }
 
 } // namespace
 
 RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	auto &fs = FileSystem::GetFileSystem(context);
+	auto source = options.source;
+	while (!source.empty() && source.back() == '/') {
+		source.pop_back();
+	}
+	if (source.empty()) {
+		throw InvalidInputException("job_directory must not be empty");
+	}
 	RunMetadata metadata;
-	metadata.job = ReadMetadataRecord(context, fs, options.source);
-	metadata.job.name = ReadRequiredField(context, metadata.job.config, "job_name");
-	auto directories = FindTrialDirectories(fs, options.source);
-	metadata.trials.reserve(directories.size());
-	for (const auto &directory : directories) {
-		auto trial = ReadMetadataRecord(context, fs, directory);
-		trial.name = ReadRequiredField(context, trial.result, "trial_name");
-		trial.trajectory_path = fs.JoinPath(directory, "agent", "trajectory.json");
+	metadata.job = ReadMetadataRecord(context, fs, source, Provenance(source), "job");
+	auto name = ReadField(context, metadata.job.config, "job_name");
+	metadata.job.name = name.IsNull() ? Path::FromString(source).GetPathSegments().back() : StringValue::Get(name);
+	auto trajectories = FindTrajectories(fs, source);
+	if (trajectories.empty() && metadata.job.config.IsNull() && metadata.job.result.IsNull()) {
+		throw InvalidInputException("No trajectories or Job metadata found: %s", source);
+	}
+	for (const auto &trajectory : trajectories) {
+		auto directory = Path::FromString(trajectory).Parent();
+		if (directory.GetPathSegments().back() == "agent") {
+			directory = directory.Parent();
+		}
+		if (directory.ToString().size() <= source.size()) {
+			throw InvalidInputException("trajectory.json must be inside a Trial directory: %s", trajectory);
+		}
+		auto relative = directory.ToString().substr(source.size() + 1);
+		auto trial = ReadMetadataRecord(context, fs, directory.ToString(), Provenance(trajectory), "trial");
+		auto trial_name = ReadField(context, trial.result, "trial_name");
+		trial.name = trial_name.IsNull() ? relative : StringValue::Get(trial_name);
+		trial.trajectory_path = trajectory;
 		metadata.trials.emplace_back(std::move(trial));
 	}
 	return metadata;
