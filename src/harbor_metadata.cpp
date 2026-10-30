@@ -4,6 +4,7 @@
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/parallel/task_executor.hpp"
 #include "schema_migration.hpp"
 #include "mbedtls_wrapper.hpp"
 #include "run_ingest.hpp"
@@ -26,7 +27,12 @@ Value ReadMetadataDocument(ClientContext &context, FileSystem &fs, const string 
 	}
 	string contents(idx_t(size), '\0');
 	file->Read(contents.data(), idx_t(size), 0);
-	return Value(std::move(contents)).CastAs(context, LogicalType::JSON()).CastAs(context, LogicalType::VARIANT());
+	// JSON-to-VARIANT is the only parse, and it yields NULL rather than an error for malformed input.
+	auto document = Value(std::move(contents)).WithType(LogicalType::JSON()).CastAs(context, LogicalType::VARIANT());
+	if (document.IsNull()) {
+		throw InvalidInputException("Malformed JSON document: %s", path);
+	}
+	return document;
 }
 
 Value ReadField(ClientContext &context, const Value &document, std::string_view name) {
@@ -95,6 +101,48 @@ vector<string> FindTrajectories(FileSystem &fs, const string &source) {
 	return paths;
 }
 
+//! Read one trial's metadata and ATIF summary on its own connection using DuckDB's task scheduler.
+class ReadTrialTask : public BaseExecutorTask {
+public:
+	ReadTrialTask(TaskExecutor &executor, ClientContext &context, string directory, string relative,
+	              string trajectory_path, const string &summary_sql, RunRecord &trial)
+	    : BaseExecutorTask(executor), db(*context.db), config(context.config), directory(std::move(directory)),
+	      relative(std::move(relative)), trajectory_path(std::move(trajectory_path)), summary_sql(summary_sql),
+	      trial(trial) {
+	}
+
+	void ExecuteTask() override {
+		Connection connection(db);
+		connection.context->config = config;
+		auto &context = *connection.context;
+		auto &fs = FileSystem::GetFileSystem(context);
+		auto record = ReadMetadataRecord(context, fs, directory, Provenance(fs, trajectory_path), "trial");
+		auto trial_name = ReadField(context, record.result, "trial_name");
+		record.name = trial_name.IsNull() ? relative : StringValue::Get(trial_name);
+		record.trajectory_path = trajectory_path;
+		auto document = ReadMetadataDocument(context, fs, trajectory_path);
+		if (!document.IsNull()) {
+			auto summary = connection.Query(summary_sql, document);
+			summary->ThrowIfError();
+			record.trajectory = summary->Fetch()->GetValue(0, 0);
+		}
+		trial = std::move(record);
+	}
+
+	string TaskType() const override {
+		return "ReadTrialTask";
+	}
+
+private:
+	DatabaseInstance &db;
+	const ClientConfig &config;
+	string directory;
+	string relative;
+	string trajectory_path;
+	const string &summary_sql;
+	RunRecord &trial;
+};
+
 } // namespace
 
 RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
@@ -116,31 +164,27 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	if (trajectories.empty() && metadata.job.config.IsNull() && metadata.job.result.IsNull()) {
 		throw InvalidInputException("No trajectories or Job metadata found: %s", source);
 	}
-	Connection summaries(*context.db);
-	summaries.context->config = context.config;
 	const auto summary_sql =
 	    StringUtil::Format("SELECT %s(?::VARIANT)", GetAgentRunsName(context, "atif_metadata").ToString());
-	for (const auto &trajectory : trajectories) {
-		auto directory = Path::FromString(trajectory).Parent();
+	metadata.trials.resize(trajectories.size());
+	TaskExecutor executor(context);
+	vector<unique_ptr<BaseExecutorTask>> tasks;
+	tasks.reserve(trajectories.size());
+	for (idx_t i = 0; i < trajectories.size(); i++) {
+		auto directory = Path::FromString(trajectories[i]).Parent();
 		if (directory.GetPathSegments().back() == "agent") {
 			directory = directory.Parent();
 		}
-		if (directory.ToString().size() <= source.size()) {
-			throw InvalidInputException("trajectory.json must be inside a Trial directory: %s", trajectory);
+		auto directory_path = directory.ToString();
+		if (directory_path.size() <= source.size()) {
+			throw InvalidInputException("trajectory.json must be inside a Trial directory: %s", trajectories[i]);
 		}
-		auto relative = directory.ToString().substr(source.size() + 1);
-		auto trial = ReadMetadataRecord(context, fs, directory.ToString(), Provenance(fs, trajectory), "trial");
-		auto trial_name = ReadField(context, trial.result, "trial_name");
-		trial.name = trial_name.IsNull() ? relative : StringValue::Get(trial_name);
-		trial.trajectory_path = trajectory;
-		auto document = ReadMetadataDocument(context, fs, trajectory);
-		if (!document.IsNull()) {
-			auto summary = summaries.Query(summary_sql, document);
-			summary->ThrowIfError();
-			trial.trajectory = summary->Fetch()->GetValue(0, 0);
-		}
-		metadata.trials.emplace_back(std::move(trial));
+		auto relative = directory_path.substr(source.size() + 1);
+		tasks.emplace_back(make_uniq<ReadTrialTask>(executor, context, std::move(directory_path), std::move(relative),
+		                                            trajectories[i], summary_sql, metadata.trials[i]));
 	}
+	executor.ScheduleTasks(std::move(tasks));
+	executor.WorkOnTasks();
 	return metadata;
 }
 

@@ -1,0 +1,20 @@
+# name: test/sql/malformed_metadata.test
+# description: Malformed job or trial metadata fails ingestion instead of being treated as missing
+# group: [sql]
+
+require agent_runs
+
+statement error
+CALL ingest_agent_run('testdata/harbor/malformed-job');
+----
+Malformed JSON document
+
+statement error
+CALL ingest_agent_run('testdata/harbor/malformed-trial', trajectory_destination := '{TEST_DIR}/datasets');
+----
+Malformed JSON document
+
+query II
+SELECT (SELECT count(*) FROM agent_runs.jobs), (SELECT count(*) FROM agent_runs.trials);
+----
+0	0
