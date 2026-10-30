@@ -380,6 +380,49 @@ CREATE TYPE agent_runs.trial_result AS STRUCT (
 -- Validate native defaults, nested collection members and model validators with
 -- the producer's Harbor models before projecting into these normalized STRUCTs.
 -- struct_extract is needed here: dotted STRUCT access is not bound in CHECKs.
+-- Independently sourced ATIF facts; never fabricate producer config/results.
+CREATE TYPE agent_runs.trajectory_metadata AS STRUCT (
+    agent_name VARCHAR,
+    model_provider VARCHAR,
+    model_name VARCHAR,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    time_source VARCHAR,
+    n_input_tokens BIGINT,
+    n_cache_tokens BIGINT,
+    n_output_tokens BIGINT,
+    cost_usd DOUBLE
+);
+
+-- Read only explicit ATIF facts. Step bounds describe the observed trajectory,
+-- not a claim that the Harbor trial completed or its verifier succeeded.
+CREATE MACRO agent_runs.atif_metadata(document) AS (
+    WITH fields AS (
+        SELECT
+            nullif(trim(json_extract_string(document, '$.agent.name')), '') AS agent,
+            nullif(trim(json_extract_string(document, '$.agent.model_name')), '') AS model,
+            try(to_timestamp(try_cast(json_extract_string(document, '$.extra.hark_trajectory_meta.started_at') AS DOUBLE))) AS started,
+            try(to_timestamp(try_cast(json_extract_string(document, '$.extra.hark_trajectory_meta.completed_at') AS DOUBLE))) AS finished,
+            list_transform(json_extract_string(document, '$.steps[*].timestamp'), lambda t: try_cast(t AS TIMESTAMPTZ)) AS step_times,
+            try_cast(json_extract_string(document, '$.final_metrics.total_prompt_tokens') AS BIGINT) AS n_input,
+            try_cast(json_extract_string(document, '$.final_metrics.total_cached_tokens') AS BIGINT) AS n_cache,
+            try_cast(json_extract_string(document, '$.final_metrics.total_completion_tokens') AS BIGINT) AS n_output,
+            try_cast(json_extract_string(document, '$.final_metrics.total_cost_usd') AS DOUBLE) AS cost
+    )
+    SELECT {
+        'agent_name': agent,
+        'model_provider': CASE WHEN strpos(model, '/') > 1 AND length(split_part(model, '/', 2)) > 0 THEN split_part(model, '/', 1) END,
+        'model_name': CASE WHEN strpos(model, '/') > 1 AND length(split_part(model, '/', 2)) > 0 THEN regexp_replace(model, '^[^/]*/', '') ELSE model END,
+        'started_at': coalesce(started, list_min(step_times)),
+        'finished_at': coalesce(finished, list_max(step_times)),
+        'time_source': CASE WHEN started IS NOT NULL OR finished IS NOT NULL THEN 'hark_trajectory_meta' WHEN list_min(step_times) IS NOT NULL THEN 'step_timestamps' END,
+        'n_input_tokens': CASE WHEN n_input >= 0 THEN n_input END,
+        'n_cache_tokens': CASE WHEN n_cache >= 0 THEN n_cache END,
+        'n_output_tokens': CASE WHEN n_output >= 0 THEN n_output END,
+        'cost_usd': CASE WHEN cost >= 0 AND isfinite(cost) THEN cost END
+    }::agent_runs.trajectory_metadata FROM fields
+);
+
 CREATE TABLE agent_runs.jobs (
     job_id UUID PRIMARY KEY,
     job_name VARCHAR NOT NULL CHECK (regexp_matches(job_name, '\S')),
@@ -395,6 +438,7 @@ CREATE TABLE agent_runs.trials (
     trial_name VARCHAR NOT NULL CHECK (regexp_matches(trial_name, '\S')),
     config agent_runs.trial_config,
     result agent_runs.trial_result,
+    trajectory agent_runs.trajectory_metadata,
     dataset_uri VARCHAR NOT NULL CHECK (regexp_matches(dataset_uri, '\S')),
     source_uri VARCHAR,
     CHECK (regexp_matches(struct_extract(result, 'task_name'), '\S')),
@@ -415,38 +459,6 @@ CREATE INDEX trials_started_at_idx ON agent_runs.trials ((result.started_at));
 CREATE INDEX trials_source_idx ON agent_runs.trials ((result.source));
 CREATE INDEX trials_model_provider_idx ON agent_runs.trials ((result.agent_info.model_info.provider));
 
-CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
-SELECT
-    job_id, job_name, source_uri,
-    CASE WHEN config IS NULL OR result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
-    result.started_at AS started_at,
-    result.finished_at AS finished_at,
-    coalesce(result.n_total_trials, (SELECT count(*) FROM agent_runs.trials WHERE trials.job_id = j.job_id)) AS n_total_trials,
-    result.stats.n_completed_trials AS n_completed_trials,
-    result.stats.n_errored_trials AS n_errored_trials,
-    result.stats.cost_usd AS cost_usd,
-    CASE WHEN result.stats.n_input_tokens IS NOT NULL
-         THEN greatest(0, result.stats.n_input_tokens - coalesce(result.stats.n_cache_tokens, 0))
-    END AS total_input_tokens,
-    result.stats.n_cache_tokens AS total_cached_input_tokens,
-    result.stats.n_output_tokens AS total_output_tokens,
-    config.environment.type AS environment_type,
-    list_sort(list_distinct(list_transform(config.agents, lambda a: a.name))) AS agents,
-    list_sort(list_distinct(list_transform(config.agents, lambda a:
-        CASE WHEN strpos(a.model_name, '/') > 0 THEN split_part(a.model_name, '/', 1) END
-    ))) AS providers,
-    list_sort(list_distinct(list_transform(config.agents, lambda a:
-        regexp_replace(a.model_name, '^[^/]*/', '')
-    ))) AS models,
-    list_sort(list_distinct(list_concat(
-        list_transform(config.datasets, lambda d: CASE WHEN d.path IS NOT NULL
-            THEN coalesce(nullif(regexp_extract(rtrim(d.path, '/'), '[^/]+$'), ''), d.path)
-            ELSE d.name END),
-        list_transform(config.tasks, lambda t: coalesce(t.name,
-            nullif(regexp_extract(rtrim(t.path, '/'), '[^/]+$'), ''), t.path))
-    ))) AS datasets
-FROM query_table(relation) AS j;
-
 CREATE MACRO agent_runs.trial_summaries(relation) AS TABLE
 WITH contexts AS (
     SELECT *, CASE WHEN result.agent_result IS NOT NULL
@@ -455,10 +467,10 @@ WITH contexts AS (
     FROM query_table(relation)
 ), totals AS (
     SELECT *,
-        list_sum(list_transform(contexts, lambda c: c.n_input_tokens)) AS n_input,
-        list_sum(list_transform(contexts, lambda c: c.n_cache_tokens)) AS n_cache,
-        list_sum(list_transform(contexts, lambda c: c.n_output_tokens)) AS n_output,
-        list_sum(list_transform(contexts, lambda c: c.cost_usd)) AS cost
+        coalesce(list_sum(list_transform(contexts, lambda c: c.n_input_tokens)), trajectory.n_input_tokens) AS n_input,
+        coalesce(list_sum(list_transform(contexts, lambda c: c.n_cache_tokens)), trajectory.n_cache_tokens) AS n_cache,
+        coalesce(list_sum(list_transform(contexts, lambda c: c.n_output_tokens)), trajectory.n_output_tokens) AS n_output,
+        coalesce(list_sum(list_transform(contexts, lambda c: c.cost_usd)), trajectory.cost_usd) AS cost
     FROM contexts
 )
 SELECT
@@ -466,11 +478,11 @@ SELECT
     CASE WHEN t.config IS NULL OR t.result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
     t.result.task_name AS task_name,
     t.result.source AS source,
-    agent_runs.trial_agent_name(t.config, t.result) AS agent_name,
-    t.result.agent_info.model_info.provider AS model_provider,
-    t.result.agent_info.model_info.name AS model_name,
-    t.result.started_at AS started_at,
-    t.result.finished_at AS finished_at,
+    coalesce(agent_runs.trial_agent_name(t.config, t.result), t.trajectory.agent_name) AS agent_name,
+    coalesce(t.result.agent_info.model_info.provider, t.trajectory.model_provider) AS model_provider,
+    coalesce(t.result.agent_info.model_info.name, t.trajectory.model_name) AS model_name,
+    coalesce(t.result.started_at, t.trajectory.started_at) AS started_at,
+    coalesce(t.result.finished_at, t.trajectory.finished_at) AS finished_at,
     t.result.verifier_result.rewards AS rewards,
     CASE WHEN isfinite(try_cast(t.result.verifier_result.rewards['reward'] AS DOUBLE))
          THEN try_cast(t.result.verifier_result.rewards['reward'] AS DOUBLE) END AS reward,
@@ -485,3 +497,48 @@ SELECT
     t.dataset_uri
 FROM totals AS t
 JOIN agent_runs.jobs AS j ON j.job_id = t.job_id;
+
+CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
+WITH trial_stats AS (
+    SELECT job_id,
+        min(started_at) AS started_at,
+        CASE WHEN count(finished_at) = count(*) THEN max(finished_at) END AS finished_at,
+        CASE WHEN count(cost_usd) = count(*) THEN sum(cost_usd) END AS cost_usd,
+        CASE WHEN count(total_input_tokens) = count(*) THEN sum(total_input_tokens) END AS n_input,
+        CASE WHEN count(cached_input_tokens) = count(*) THEN sum(cached_input_tokens) END AS n_cache,
+        CASE WHEN count(output_tokens) = count(*) THEN sum(output_tokens) END AS n_output,
+        list_sort(list_distinct(list(agent_name))) AS agents,
+        list_sort(list_distinct(list(model_provider))) AS providers,
+        list_sort(list_distinct(list(model_name))) AS models
+    FROM agent_runs.trial_summaries('agent_runs.trials') GROUP BY job_id
+)
+SELECT
+    j.job_id, job_name, source_uri,
+    CASE WHEN config IS NULL OR result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
+    coalesce(result.started_at, ts.started_at) AS started_at,
+    coalesce(result.finished_at, ts.finished_at) AS finished_at,
+    coalesce(result.n_total_trials, (SELECT count(*) FROM agent_runs.trials WHERE trials.job_id = j.job_id)) AS n_total_trials,
+    result.stats.n_completed_trials AS n_completed_trials,
+    result.stats.n_errored_trials AS n_errored_trials,
+    coalesce(result.stats.cost_usd, ts.cost_usd) AS cost_usd,
+    CASE WHEN coalesce(result.stats.n_input_tokens, ts.n_input) IS NOT NULL
+         THEN greatest(0, coalesce(result.stats.n_input_tokens, ts.n_input) - coalesce(coalesce(result.stats.n_cache_tokens, ts.n_cache), 0))
+    END AS total_input_tokens,
+    coalesce(result.stats.n_cache_tokens, ts.n_cache) AS total_cached_input_tokens,
+    coalesce(result.stats.n_output_tokens, ts.n_output) AS total_output_tokens,
+    config.environment.type AS environment_type,
+    coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a: a.name))), []), ts.agents) AS agents,
+    coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a:
+        CASE WHEN strpos(a.model_name, '/') > 0 THEN split_part(a.model_name, '/', 1) END
+    ))), []), ts.providers) AS providers,
+    coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a:
+        regexp_replace(a.model_name, '^[^/]*/', '')
+    ))), []), ts.models) AS models,
+    list_sort(list_distinct(list_concat(
+        list_transform(config.datasets, lambda d: CASE WHEN d.path IS NOT NULL
+            THEN coalesce(nullif(regexp_extract(rtrim(d.path, '/'), '[^/]+$'), ''), d.path)
+            ELSE d.name END),
+        list_transform(config.tasks, lambda t: coalesce(t.name,
+            nullif(regexp_extract(rtrim(t.path, '/'), '[^/]+$'), ''), t.path))
+    ))) AS datasets
+FROM query_table(relation) AS j LEFT JOIN trial_stats ts ON ts.job_id = j.job_id;

@@ -1,1 +1,1 @@
-This is deliberately not ATIF; metadata ingestion must not parse it.
+{"schema_version":"ATIF-v1.8","trajectory_id":"invalid-trial-metadata","agent":{"name":"test","version":"1"},"steps":[{"step_id":1,"source":"user","message":"hello"}]}

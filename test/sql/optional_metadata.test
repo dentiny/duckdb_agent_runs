@@ -32,9 +32,27 @@ FROM agent_runs.job_summaries('agent_runs.jobs');
 
 query I
 SELECT count(*) FROM agent_runs.trial_summaries('agent_runs.trials')
-WHERE task_name IS NULL AND agent_name IS NULL AND has_error IS NULL;
+WHERE task_name IS NULL AND agent_name = 'test' AND has_error IS NULL;
 ----
 2
+
+query TTTIIIIR
+SELECT agent_name, model_provider, model_name, input_tokens, cached_input_tokens,
+       output_tokens, started_at IS NOT NULL, cost_usd
+FROM agent_runs.trial_summaries('agent_runs.trials') WHERE trial_name = 'task-a';
+----
+test	openai	qwen38-27b	60	40	12	true	0.25
+
+query III
+SELECT trajectory.n_input_tokens, config IS NULL, result IS NULL
+FROM agent_runs.trials WHERE trial_name = 'task-a';
+----
+100	true	true
+
+query TTI
+SELECT agents[1], models[1], cost_usd IS NULL FROM agent_runs.job_summaries('agent_runs.jobs');
+----
+test	qwen38-27b	true
 
 # Generated identities are stable; retry fails before converting duplicate outputs.
 statement error
