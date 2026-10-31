@@ -1,0 +1,16 @@
+# name: test/sql/split_model_name.test
+# description: Trial and job summaries share one provider/model split rule
+# group: [sql]
+
+require agent_runs
+
+query TTT
+SELECT model, agent_runs.split_model_name(model).provider, agent_runs.split_model_name(model).name
+FROM (VALUES ('openai/gpt-5'), ('openai/org/model'), ('/foo'), ('openai/'), ('gpt-5'), (NULL)) t(model);
+----
+openai/gpt-5	openai	gpt-5
+openai/org/model	openai	org/model
+/foo	NULL	/foo
+openai/	NULL	openai/
+gpt-5	NULL	gpt-5
+NULL	NULL	NULL

@@ -390,6 +390,12 @@ CREATE TYPE agent_runs.trajectory_metadata AS STRUCT (
     cost_usd DOUBLE
 );
 
+-- Split "provider/model" only when both sides are non-empty; otherwise the whole string is the model.
+CREATE MACRO agent_runs.split_model_name(model) AS
+    CASE WHEN strpos(model, '/') > 1 AND length(split_part(model, '/', 2)) > 0
+         THEN {'provider': split_part(model, '/', 1), 'name': regexp_replace(model, '^[^/]*/', '')}
+         ELSE {'provider': NULL::VARCHAR, 'name': model} END;
+
 -- Read only explicit ATIF facts. Step bounds describe the observed trajectory,
 -- not a claim that the Harbor trial completed or its verifier succeeded.
 CREATE MACRO agent_runs.atif_metadata(document) AS (
@@ -407,8 +413,8 @@ CREATE MACRO agent_runs.atif_metadata(document) AS (
     )
     SELECT {
         'agent_name': agent,
-        'model_provider': CASE WHEN strpos(model, '/') > 1 AND length(split_part(model, '/', 2)) > 0 THEN split_part(model, '/', 1) END,
-        'model_name': CASE WHEN strpos(model, '/') > 1 AND length(split_part(model, '/', 2)) > 0 THEN regexp_replace(model, '^[^/]*/', '') ELSE model END,
+        'model_provider': agent_runs.split_model_name(model).provider,
+        'model_name': agent_runs.split_model_name(model).name,
         'started_at': coalesce(started, list_min(step_times)),
         'finished_at': coalesce(finished, list_max(step_times)),
         'time_source': CASE WHEN started IS NOT NULL OR finished IS NOT NULL THEN 'hark_trajectory_meta' WHEN list_min(step_times) IS NOT NULL THEN 'step_timestamps' END,
@@ -529,10 +535,10 @@ SELECT
     config.environment.type AS environment_type,
     coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a: a.name))), []), ts.agents) AS agents,
     coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a:
-        CASE WHEN strpos(a.model_name, '/') > 0 THEN split_part(a.model_name, '/', 1) END
+        agent_runs.split_model_name(a.model_name).provider
     ))), []), ts.providers) AS providers,
     coalesce(nullif(list_sort(list_distinct(list_transform(config.agents, lambda a:
-        regexp_replace(a.model_name, '^[^/]*/', '')
+        agent_runs.split_model_name(a.model_name).name
     ))), []), ts.models) AS models,
     list_sort(list_distinct(list_concat(
         list_transform(config.datasets, lambda d: CASE WHEN d.path IS NOT NULL
