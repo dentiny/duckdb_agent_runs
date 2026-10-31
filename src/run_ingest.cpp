@@ -60,6 +60,36 @@ private:
 	vector<string> uris;
 };
 
+//! Never clean a dataset that existed before this ingestion call.
+void RequireNewDataset(ClientContext &context, const string &uri) {
+	if (LanceDatasetExists(context, uri)) {
+		throw InvalidInputException("Dataset already exists: %s", uri);
+	}
+}
+
+//! Check one destination on its own connection, so remote existence checks run concurrently.
+class RequireNewDatasetTask : public BaseExecutorTask {
+public:
+	RequireNewDatasetTask(TaskExecutor &executor, DatabaseInstance &db, const ClientConfig &config, string uri)
+	    : BaseExecutorTask(executor), db(db), config(config), uri(std::move(uri)) {
+	}
+
+	void ExecuteTask() override {
+		Connection connection(db);
+		connection.context->config = config;
+		RequireNewDataset(*connection.context, uri);
+	}
+
+	string TaskType() const override {
+		return "RequireNewDatasetTask";
+	}
+
+private:
+	DatabaseInstance &db;
+	const ClientConfig &config;
+	string uri;
+};
+
 //! Execute one trial conversion on its own connection using DuckDB's task scheduler.
 class ConvertTrialTask : public BaseExecutorTask {
 public:
@@ -176,13 +206,6 @@ vector<string> GetTrialDatasetURIs(ClientContext &context, const RunOptions &opt
 	return uris;
 }
 
-//! Never clean a dataset that existed before this ingestion call.
-void RequireNewDataset(ClientContext &context, const string &uri) {
-	if (LanceDatasetExists(context, uri)) {
-		throw InvalidInputException("Dataset already exists: %s", uri);
-	}
-}
-
 //! Append metadata with the current context so the caller's COMMIT/ROLLBACK governs both tables.
 void InsertRunMetadata(ClientContext &context, const RunMetadata &metadata, const vector<string> &dataset_uris) {
 	auto &jobs = GetJobsTable(context);
@@ -215,19 +238,21 @@ void ConvertTrialTrajectories(ClientContext &context, const RunMetadata &metadat
 	if (!context.TryGetCurrentSetting(Identifier(FAILURE_CLEANUP_SETTING), cleanup_value)) {
 		throw InternalException("Missing agent_runs_failure_cleanup setting");
 	}
-	const bool cleanup_enabled = cleanup_value.GetValue<bool>();
+	if (cleanup_value.GetValue<bool>()) {
+		// Every destination is checked before any is registered, so cleanup never removes a preexisting dataset.
+		TaskExecutor checks(context);
+		for (const auto &uri : dataset_uris) {
+			checks.ScheduleTask(make_uniq<RequireNewDatasetTask>(checks, *context.db, context.config, uri));
+		}
+		checks.WorkOnTasks();
+		context.registered_state->GetOrCreate<PendingDatasets>(string(PENDING_DATASETS_STATE))->Add(dataset_uris);
+	}
 	TaskExecutor executor(context);
 	vector<unique_ptr<BaseExecutorTask>> tasks;
 	tasks.reserve(metadata.trials.size());
 	for (idx_t i = 0; i < metadata.trials.size(); i++) {
-		if (cleanup_enabled) {
-			RequireNewDataset(context, dataset_uris[i]);
-		}
 		tasks.emplace_back(make_uniq<ConvertTrialTask>(executor, *context.db, context.config,
 		                                               metadata.trials[i].trajectory_path, dataset_uris[i]));
-	}
-	if (cleanup_enabled) {
-		context.registered_state->GetOrCreate<PendingDatasets>(string(PENDING_DATASETS_STATE))->Add(dataset_uris);
 	}
 	// On error, the executor drains running tasks before the transaction rollback deletes their outputs.
 	executor.ScheduleTasks(std::move(tasks));
