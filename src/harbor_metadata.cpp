@@ -1,5 +1,6 @@
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/set.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/client_context.hpp"
@@ -9,7 +10,6 @@
 #include "mbedtls_wrapper.hpp"
 #include "run_ingest.hpp"
 
-#include <algorithm>
 #include <string_view>
 #include <utility>
 
@@ -76,9 +76,9 @@ RunRecord ReadMetadataRecord(ClientContext &context, FileSystem &fs, const strin
 }
 
 vector<string> FindTrajectories(FileSystem &fs, const string &source) {
-	vector<string> paths;
+	set<string> paths;
 	for (const auto &entry : fs.Glob(fs.JoinPath(source, "**", "trajectory.json"))) {
-		paths.push_back(entry.path);
+		paths.insert(entry.path);
 	}
 	// Metadata-only trials still surface missing trajectories as conversion errors.
 	for (const auto &pattern :
@@ -90,15 +90,12 @@ vector<string> FindTrajectories(FileSystem &fs, const string &source) {
 			}
 			auto root = fs.JoinPath(directory, "trajectory.json");
 			auto agent = fs.JoinPath(directory, "agent", "trajectory.json");
-			if (std::find(paths.begin(), paths.end(), root) == paths.end() &&
-			    std::find(paths.begin(), paths.end(), agent) == paths.end()) {
-				paths.push_back(agent);
+			if (!paths.count(root) && !paths.count(agent)) {
+				paths.insert(agent);
 			}
 		}
 	}
-	std::sort(paths.begin(), paths.end());
-	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
-	return paths;
+	return vector<string>(paths.begin(), paths.end());
 }
 
 //! Read one trial's metadata and ATIF summary on its own connection using DuckDB's task scheduler.
@@ -163,6 +160,9 @@ RunMetadata ReadHarborRun(ClientContext &context, const RunOptions &options) {
 	auto trajectories = FindTrajectories(fs, source);
 	if (trajectories.empty() && metadata.job.config.IsNull() && metadata.job.result.IsNull()) {
 		throw InvalidInputException("No trajectories or Job metadata found: %s", source);
+	}
+	if (!trajectories.empty() && options.trajectory_destination.empty()) {
+		throw InvalidInputException("trajectory_destination is required to populate trials.dataset_uri");
 	}
 	const auto summary_sql =
 	    StringUtil::Format("SELECT %s(?::VARIANT)", GetAgentRunsName(context, "atif_metadata").ToString());

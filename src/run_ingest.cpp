@@ -131,14 +131,6 @@ std::string_view GetStringArgument(const Value &value, std::string_view name) {
 	return StringValue::Get(value);
 }
 
-//! Resolve the public format name to its internal adapter enum.
-RunFormat ParseRunFormat(std::string_view format) {
-	if (format == "harbor") {
-		return RunFormat::HARBOR;
-	}
-	throw InvalidInputException("Unsupported run format: %s", string(format));
-}
-
 //! Bind arguments and declare writes without reading files or changing tables.
 unique_ptr<FunctionData> BindRun(ClientContext &context, TableFunctionBindInput &input, vector<LogicalType> &types,
                                  vector<Identifier> &names) {
@@ -149,7 +141,10 @@ unique_ptr<FunctionData> BindRun(ClientContext &context, TableFunctionBindInput 
 		if (name == "trajectory_destination") {
 			data->options.trajectory_destination = GetStringArgument(parameter.second, "trajectory_destination");
 		} else if (name == "format") {
-			data->options.format = ParseRunFormat(GetStringArgument(parameter.second, "format"));
+			auto format = GetStringArgument(parameter.second, "format");
+			if (format != "harbor") {
+				throw InvalidInputException("Unsupported run format: %s", string(format));
+			}
 		}
 	}
 	auto &jobs = GetJobsTable(context);
@@ -169,9 +164,16 @@ unique_ptr<GlobalTableFunctionState> InitRun(ClientContext &, TableFunctionInitI
 	return make_uniq<RunState>();
 }
 
-//! Keep the stored URI and the conversion destination identical.
-string GetTrialDatasetURI(FileSystem &fs, const RunOptions &options, const RunRecord &trial) {
-	return fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString()));
+//! Keep the stored URIs and the conversion destinations identical.
+vector<string> GetTrialDatasetURIs(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
+	auto &fs = FileSystem::GetFileSystem(context);
+	vector<string> uris;
+	uris.reserve(metadata.trials.size());
+	for (const auto &trial : metadata.trials) {
+		uris.push_back(
+		    fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString())));
+	}
+	return uris;
 }
 
 //! Never clean a dataset that existed before this ingestion call.
@@ -182,7 +184,7 @@ void RequireNewDataset(ClientContext &context, const string &uri) {
 }
 
 //! Append metadata with the current context so the caller's COMMIT/ROLLBACK governs both tables.
-void InsertRunMetadata(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
+void InsertRunMetadata(ClientContext &context, const RunMetadata &metadata, const vector<string> &dataset_uris) {
 	auto &jobs = GetJobsTable(context);
 	auto job_types = jobs.GetTypes();
 	InternalAppender job_appender(context, jobs);
@@ -193,23 +195,22 @@ void InsertRunMetadata(ClientContext &context, const RunOptions &options, const 
 	auto &trials = GetTrialsTable(context);
 	auto trial_types = trials.GetTypes();
 	InternalAppender trial_appender(context, trials);
-	auto &fs = FileSystem::GetFileSystem(context);
-	for (const auto &trial : metadata.trials) {
-		auto dataset_uri = GetTrialDatasetURI(fs, options, trial);
+	for (idx_t i = 0; i < metadata.trials.size(); i++) {
+		const auto &trial = metadata.trials[i];
 		trial_appender.AppendRow(
 		    trial.id, metadata.job.id, Value(trial.name), trial.config.CastAs(context, trial_types[3]),
 		    trial.result.CastAs(context, trial_types[4]), trial.trajectory.CastAs(context, trial_types[5]),
-		    Value(dataset_uri), Value(trial.source_uri));
+		    Value(dataset_uris[i]), Value(trial.source_uri));
 	}
 	trial_appender.Close();
 }
 
 //! Convert independent trial trajectories concurrently, then surface any task error to the caller.
-void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
+void ConvertTrialTrajectories(ClientContext &context, const RunMetadata &metadata,
+                              const vector<string> &dataset_uris) {
 	if (metadata.trials.empty()) {
 		return;
 	}
-	auto &fs = FileSystem::GetFileSystem(context);
 	Value cleanup_value;
 	if (!context.TryGetCurrentSetting(Identifier(FAILURE_CLEANUP_SETTING), cleanup_value)) {
 		throw InternalException("Missing agent_runs_failure_cleanup setting");
@@ -217,20 +218,16 @@ void ConvertTrialTrajectories(ClientContext &context, const RunOptions &options,
 	const bool cleanup_enabled = cleanup_value.GetValue<bool>();
 	TaskExecutor executor(context);
 	vector<unique_ptr<BaseExecutorTask>> tasks;
-	vector<string> destinations;
 	tasks.reserve(metadata.trials.size());
-	destinations.reserve(metadata.trials.size());
-	for (const auto &trial : metadata.trials) {
-		auto destination = GetTrialDatasetURI(fs, options, trial);
+	for (idx_t i = 0; i < metadata.trials.size(); i++) {
 		if (cleanup_enabled) {
-			RequireNewDataset(context, destination);
+			RequireNewDataset(context, dataset_uris[i]);
 		}
-		tasks.emplace_back(
-		    make_uniq<ConvertTrialTask>(executor, *context.db, context.config, trial.trajectory_path, destination));
-		destinations.emplace_back(std::move(destination));
+		tasks.emplace_back(make_uniq<ConvertTrialTask>(executor, *context.db, context.config,
+		                                               metadata.trials[i].trajectory_path, dataset_uris[i]));
 	}
 	if (cleanup_enabled) {
-		context.registered_state->GetOrCreate<PendingDatasets>(string(PENDING_DATASETS_STATE))->Add(destinations);
+		context.registered_state->GetOrCreate<PendingDatasets>(string(PENDING_DATASETS_STATE))->Add(dataset_uris);
 	}
 	// On error, the executor drains running tasks before the transaction rollback deletes their outputs.
 	executor.ScheduleTasks(std::move(tasks));
@@ -248,11 +245,9 @@ void IngestRun(ClientContext &context, TableFunctionInput &input, DataChunk &out
 	}
 	const auto &options = input.bind_data->Cast<RunBindData>().options;
 	auto metadata = ReadHarborRun(context, options);
-	if (!metadata.trials.empty() && options.trajectory_destination.empty()) {
-		throw InvalidInputException("trajectory_destination is required to populate trials.dataset_uri");
-	}
-	InsertRunMetadata(context, options, metadata);
-	ConvertTrialTrajectories(context, options, metadata);
+	auto dataset_uris = GetTrialDatasetURIs(context, options, metadata);
+	InsertRunMetadata(context, metadata, dataset_uris);
+	ConvertTrialTrajectories(context, metadata, dataset_uris);
 	output.data[0].Append(metadata.job.id);
 	output.data[1].Append(Value(metadata.job.name));
 	output.data[2].Append(Value::UBIGINT(metadata.trials.size()));
