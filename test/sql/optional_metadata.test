@@ -30,6 +30,21 @@ FROM agent_runs.job_summaries('agent_runs.jobs');
 ----
 2	partial	true	true
 
+# A job without results or trials counts zero trials.
+statement ok
+BEGIN;
+
+statement ok
+INSERT INTO agent_runs.jobs (job_id, job_name) VALUES ('00000000-0000-0000-0000-0000000000ff', 'no-trials');
+
+query I
+SELECT n_total_trials FROM agent_runs.job_summaries('agent_runs.jobs') WHERE job_name = 'no-trials';
+----
+0
+
+statement ok
+ROLLBACK;
+
 query I
 SELECT count(*) FROM agent_runs.trial_summaries('agent_runs.trials')
 WHERE task_name IS NULL AND agent_name = 'test' AND has_error IS NULL;
