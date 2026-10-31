@@ -507,6 +507,7 @@ JOIN agent_runs.jobs AS j ON j.job_id = t.job_id;
 CREATE MACRO agent_runs.job_summaries(relation) AS TABLE
 WITH trial_stats AS (
     SELECT job_id,
+        count(*) AS n_trials,
         min(started_at) AS started_at,
         CASE WHEN count(finished_at) = count(*) THEN max(finished_at) END AS finished_at,
         CASE WHEN count(cost_usd) = count(*) THEN sum(cost_usd) END AS cost_usd,
@@ -523,7 +524,7 @@ SELECT
     CASE WHEN config IS NULL OR result IS NULL THEN 'partial' ELSE 'complete' END AS metadata_status,
     coalesce(result.started_at, ts.started_at) AS started_at,
     coalesce(result.finished_at, ts.finished_at) AS finished_at,
-    coalesce(result.n_total_trials, (SELECT count(*) FROM agent_runs.trials WHERE trials.job_id = j.job_id)) AS n_total_trials,
+    coalesce(result.n_total_trials, ts.n_trials, 0) AS n_total_trials,
     result.stats.n_completed_trials AS n_completed_trials,
     result.stats.n_errored_trials AS n_errored_trials,
     coalesce(result.stats.cost_usd, ts.cost_usd) AS cost_usd,
