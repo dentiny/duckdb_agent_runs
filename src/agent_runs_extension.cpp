@@ -24,7 +24,7 @@ std::string AgentRunsExtension::Name() {
 	return "agent_runs";
 }
 std::string AgentRunsExtension::Version() const {
-	return "0.1.0";
+	return "0.2.0";
 }
 } // namespace duckdb
 extern "C" {

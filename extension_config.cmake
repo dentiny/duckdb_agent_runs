@@ -13,7 +13,7 @@ duckdb_extension_load(
   ${CMAKE_CURRENT_LIST_DIR}/external/duckdb_lance_conversion EXTENSION_VERSION
   ${LANCE_VERSION})
 duckdb_extension_load(agent_runs SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
-                      EXTENSION_VERSION "0.1.0")
+                      EXTENSION_VERSION "0.2.0")
 duckdb_extension_load(parquet)
 
 if(BUILD_EXTENSION_TEST_DEPS STREQUAL "default" OR BUILD_EXTENSION_TEST_DEPS
