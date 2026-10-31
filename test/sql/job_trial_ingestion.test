@@ -4,9 +4,14 @@
 
 require agent_runs
 
+statement error
+SELECT * FROM ingest_agent_run('testdata/harbor/job', format := 'foo');
+----
+Unsupported run format: foo
+
 # Binding/preparing the call must not insert any rows or parse the source.
 statement ok
-PREPARE ingest AS SELECT * FROM ingest_agent_run('testdata/harbor/job',
+PREPARE ingest AS SELECT * FROM ingest_agent_run('testdata/harbor/job', format := 'harbor',
     trajectory_destination := '{TEST_DIR}/datasets');
 
 query II

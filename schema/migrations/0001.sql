@@ -376,10 +376,6 @@ CREATE TYPE agent_runs.trial_result AS STRUCT (
     "teardown_errors"            VARCHAR[]
 );
 
--- Table constraints enforce catalog identity and required root fields.
--- Validate native defaults, nested collection members and model validators with
--- the producer's Harbor models before projecting into these normalized STRUCTs.
--- struct_extract is needed here: dotted STRUCT access is not bound in CHECKs.
 -- Independently sourced ATIF facts; never fabricate producer config/results.
 CREATE TYPE agent_runs.trajectory_metadata AS STRUCT (
     agent_name VARCHAR,
@@ -423,6 +419,10 @@ CREATE MACRO agent_runs.atif_metadata(document) AS (
     }::agent_runs.trajectory_metadata FROM fields
 );
 
+-- Table constraints enforce catalog identity and required root fields.
+-- Validate native defaults, nested collection members and model validators with
+-- the producer's Harbor models before projecting into these normalized STRUCTs.
+-- struct_extract is needed here: dotted STRUCT access is not bound in CHECKs.
 CREATE TABLE agent_runs.jobs (
     job_id UUID PRIMARY KEY,
     job_name VARCHAR NOT NULL CHECK (regexp_matches(job_name, '\S')),

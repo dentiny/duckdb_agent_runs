@@ -9,12 +9,9 @@ namespace duckdb {
 class ClientContext;
 class ExtensionLoader;
 
-enum class RunFormat : uint8_t { HARBOR };
-
 struct RunOptions {
 	//! Job directory or object-storage prefix containing original trajectories and optional metadata.
 	string source;
-	RunFormat format = RunFormat::HARBOR;
 	//! Per-job root where each trial's ATIF trajectory is converted to a Lance dataset.
 	string trajectory_destination;
 };
