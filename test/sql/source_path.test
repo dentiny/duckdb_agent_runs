@@ -9,9 +9,25 @@ SET home_directory = 'testdata';
 
 query TI
 SELECT job_name, trials_ingested FROM ingest_agent_run('~/harbor/../harbor/./metadata-optional/',
-    trajectory_destination := '{TEST_DIR}/datasets');
+    trajectory_destination := '{TEST_DIR}/unused/.././datasets/');
 ----
 metadata-optional	2
+
+# Relative destinations are stored as absolute, normalized paths where the datasets were written.
+query III
+SELECT bool_and(starts_with(dataset_uri, '/')), bool_and(NOT contains(dataset_uri, '/.')),
+       bool_and(regexp_matches(dataset_uri, '/datasets/[0-9a-f-]+\.lance$'))
+FROM agent_runs.trials;
+----
+true	true	true
+
+statement ok
+SET VARIABLE dataset_uri = (SELECT min(dataset_uri) FROM agent_runs.trials);
+
+query I
+SELECT count(*) > 0 FROM glob(getvariable('dataset_uri') || '/**/*.manifest');
+----
+true
 
 query TT rowsort
 SELECT trial_name, ends_with(source_uri, '/testdata/harbor/metadata-optional/' || trial_name || '/trajectory.json')

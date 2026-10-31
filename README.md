@@ -55,7 +55,8 @@ CALL ingest_agent_run(
 
 The call returns `job_id`, `job_name`, and `trials_ingested`. It writes each
 trial's Lance dataset to `<trajectory_destination>/<trial UUID>.lance` and saves that URI in
-`agent_runs.trials.dataset_uri`. Conversion of different trials runs in
+`agent_runs.trials.dataset_uri`. A local destination is stored as an absolute, normalized
+path, so the URI does not depend on the working directory. Conversion of different trials runs in
 parallel. You can query the persisted metadata immediately:
 
 ```sql

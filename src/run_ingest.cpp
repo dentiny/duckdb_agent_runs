@@ -197,11 +197,14 @@ unique_ptr<GlobalTableFunctionState> InitRun(ClientContext &, TableFunctionInitI
 //! Keep the stored URIs and the conversion destinations identical.
 vector<string> GetTrialDatasetURIs(ClientContext &context, const RunOptions &options, const RunMetadata &metadata) {
 	auto &fs = FileSystem::GetFileSystem(context);
+	auto root = options.trajectory_destination;
+	if (!FileSystem::IsRemoteFile(root)) {
+		root = fs.CanonicalizePath(root);
+	}
 	vector<string> uris;
 	uris.reserve(metadata.trials.size());
 	for (const auto &trial : metadata.trials) {
-		uris.push_back(
-		    fs.JoinPath(options.trajectory_destination, StringUtil::Format("%s.lance", trial.id.ToString())));
+		uris.push_back(fs.JoinPath(root, StringUtil::Format("%s.lance", trial.id.ToString())));
 	}
 	return uris;
 }
