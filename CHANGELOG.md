@@ -2,6 +2,9 @@
 
 ### Fixed
 
+- Align the independent round-trip test reader with the Lance v14.0.3 writer
+  and DuckDB v2.0.1 API baseline.
+- Synchronize the embedded `lance_conversion` dependency with its test-reader alignment.
 - Pin `lance_conversion` to its DuckDB v2.0.1 profiler API compatibility fix.
 - Pin `lance_conversion` to its merged CI fix, using stable Lance v14.0.3 and
   a single Arrow 58 dependency graph for ATIF/XML ingestion.
