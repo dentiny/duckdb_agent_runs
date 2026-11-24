@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Pin `lance_conversion` to its DuckDB v2.0.1 profiler API compatibility fix.
 - Pin `lance_conversion` to its merged CI fix, using stable Lance v14.0.3 and
   a single Arrow 58 dependency graph for ATIF/XML ingestion.
 
