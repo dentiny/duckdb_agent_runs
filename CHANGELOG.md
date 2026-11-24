@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+- Pin `lance_conversion` to its merged CI fix, using stable Lance v14.0.3 and
+  a single Arrow 58 dependency graph for ATIF/XML ingestion.
+
 ## 0.2.1 - 2026-11-23
 
 ### Changed
