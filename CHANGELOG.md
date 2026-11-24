@@ -3,6 +3,7 @@
 ### Changed
 
 - Upgrade DuckDB to `v2.0.1`.
+- Align the `lance_conversion` dependency with its DuckDB v2.0.1 patch release (`v0.2.3`).
 
 # 0.2.0
 
